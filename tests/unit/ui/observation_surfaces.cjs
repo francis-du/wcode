@@ -172,6 +172,20 @@ test('clearing the workspace resets the system map controls too', () => {
   assert.equal(s.run('els.systemMapFull.getAttribute("aria-pressed")'), 'false');
 });
 
+test('clearing the workspace drops the fullscreen code graph', () => {
+  const s = sandbox();
+  s.context.fixture = fixture();
+  s.run('state.project=fixture;state.current="A";setCodeGraphFull(true);setCodeGraphInspector(true);');
+  assert.equal(s.run('els.codeGraphSection.classList.contains("code-graph-fullscreen")'), true);
+  s.run('clearWorkspaceView();');
+  assert.equal(s.run('state.codeGraphFull'), false,
+    'a fullscreen graph must not cover the next workspace');
+  assert.equal(s.run('els.codeGraphSection.classList.contains("code-graph-fullscreen")'), false);
+  assert.equal(s.run('els.codeGraphFull.getAttribute("aria-pressed")'), 'false');
+  assert.equal(s.run('state.codeGraphInspectorOpen'), false,
+    'the inspector belongs to the graph being cleared');
+});
+
 test('a shared hash restores the view it names', () => {
   const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
   s.run('state.current="A";');

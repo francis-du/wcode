@@ -344,6 +344,10 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.codeGraphView = "overview"; state.codeGraphSearchResults = [];
   state.codeGraphLoading = false; state.codeGraphError = ""; state.selectedCodeNode = "";
   state.codeGraphPaintKey = "";
+  // The fullscreen graph is a dialog over the whole page, and the inspector
+  // belongs to the graph being cleared; neither may follow the workspace.
+  if (state.codeGraphFull) setCodeGraphFull(false);
+  if (state.codeGraphInspectorOpen) setCodeGraphInspector(false);
   // Resetting the state alone would leave the zoom readout, the fit button and
   // the full-map button showing the previous workspace's view.
   state.systemMapScale = 1; state.systemMapFit = true; state.systemMapFull = false;
