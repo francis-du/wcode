@@ -7,10 +7,43 @@ const consistencyStates = ["all", "needs_attention", "stable", "unobserved"];
 
 const consistencyFindings = () => (state.project?.risk?.drift?.findings || [])
   .filter(item => item.kind === "runtime_drift");
+// A requirement row is answered by the drift that explains its trace: an
+// incomplete implementation/verification trace, or a runtime bound it breaks.
+const consistencyRequirementFindings = () => (state.project?.risk?.drift?.findings || [])
+  .filter(item => item.kind === "implementation_drift" || item.kind === "runtime_drift");
+
+const consistencyDriftKinds = ["all", "implementation_drift", "design_drift", "runtime_drift"];
+const driftKindLabels = value => ({
+  all: t("All drift kinds"),
+  implementation_drift: t("implementation drift"),
+  design_drift: t("design drift"),
+  runtime_drift: t("runtime drift"),
+}[value] || statusLabel(value));
+
+// The queue links each finding back to the object that carries its evidence.
+// A subject that names no known object still lands on the drift diagnostics.
+const driftFindingTarget = finding => {
+  const subject = String(finding.subject || "");
+  const project = state.project || {};
+  if ((project.requirements || []).some(item => item.id === subject)) return `object:requirement:${subject}`;
+  if ((architectureData().components || []).some(item => item.id === subject)) return `object:component:${subject}`;
+  if (subject.startsWith("implementation:")) return "changesSection";
+  return "diagnosticsSection";
+};
+
+// Numeric drift keeps its unit, precision and revision binding together: a
+// percentage alone cannot say what was measured, on what, or for which version.
+const driftDeviationText = deviation => {
+  if (!deviation) return "";
+  const parts = [deviation.metric, `${num(deviation.observed)} / ${num(deviation.expected_max)} ${deviation.unit}`,
+    `${num(deviation.deviation_percent)}%`, statusLabel(deviation.precision),
+    deviation.revision_bound ? t("revision-bound") : t("not revision-bound")];
+  return parts.filter(Boolean).join(" · ");
+};
 
 const consistencyRows = () => {
   const project = state.project || {}, design = project.design || {};
-  const findings = consistencyFindings();
+  const findings = consistencyFindings(), requirementFindings = consistencyRequirementFindings();
   const rows = [];
   for (const requirement of (project.requirements || [])) {
     const dependencies = requirement.dependency_alignment || [];
@@ -18,7 +51,7 @@ const consistencyRows = () => {
     const needs = requirement.convergence === "needs_convergence" || blocking > 0;
     // A drift affecting this requirement is only actionable next to the
     // convergence plan that claims it; an unclaimed drift says so instead.
-    const affecting = findings.filter(finding => (finding.affected_requirements || []).includes(requirement.id));
+    const affecting = requirementFindings.filter(finding => (finding.affected_requirements || []).includes(requirement.id));
     const plans = affecting.length
       ? (project.reconciliation || []).filter(plan => (plan.drift_ids || []).some(id => affecting.some(finding => finding.id === id)))
       : [];
@@ -179,12 +212,20 @@ function renderConsistencyMatrix() {
   const stateLabels = value => ({ all: t("All states"), needs_attention: t("Needs attention"), stable: t("Stable"), unobserved: t("Unobserved") })[value];
   const body = rows.length ? rows.map(row => `<tr data-consistency-row="${esc(row.navigate)}"${row.state === "needs_attention" ? ' class="attention"' : ""}><th scope="row"><code>${esc(row.id)}</code></th><td>${esc(t({ requirement: "Requirement", component: "Component", constraint: "Constraint", acceptance: "Acceptance" }[row.kind]))}</td><td>${esc(row.design)}</td><td>${esc(row.actual)}</td><td>${esc(row.delta || stateLabels(row.state))}</td></tr>`).join("")
     : `<tr><td colspan="5" class="empty">${esc(t("No design object matches this filter."))}</td></tr>`;
-  setHtml("consistencySection", els.consistencySection, `<header class="consistency-head"><div><span class="section-kicker">${esc(t("DESIGN CONSISTENCY"))}</span><h3>${esc(t("Design consistency"))}</h3><p class="panel-meta">${esc(t("Design intent, observed state and the delta between them. This matrix combines existing identities and does not replace the requirements or architecture views."))}</p></div><div class="consistency-filters" role="group" aria-label="${esc(t("Design consistency filters"))}"><label>${esc(t("Kind"))}<select data-consistency-kind>${options(consistencyKinds, kind, kindLabels)}</select></label><label>${esc(t("State"))}<select data-consistency-state>${options(consistencyStates, filter, stateLabels)}</select></label></div></header><div class="consistency-table-wrap" tabindex="0" role="region" aria-label="${esc(t("Design consistency matrix"))}"><table class="consistency-table"><thead><tr><th scope="col">${esc(t("Object"))}</th><th scope="col">${esc(t("Kind"))}</th><th scope="col">${esc(t("Design"))}</th><th scope="col">${esc(t("Observed"))}</th><th scope="col">${esc(t("Delta"))}</th></tr></thead><tbody>${body}</tbody></table></div>`, () => {
+  const driftKind = consistencyDriftKinds.includes(state.consistencyDriftKind) ? state.consistencyDriftKind : "all";
+  const drift = state.project?.risk?.drift;
+  const driftRows = (drift?.findings || []).filter(finding => driftKind === "all" || finding.kind === driftKind);
+  const driftBody = driftRows.length ? driftRows.map(finding => `<tr data-consistency-drift-row="${esc(driftFindingTarget(finding))}"><th scope="row"><code>${esc(finding.id)}</code></th><td>${esc(driftKindLabels(finding.kind))}</td><td>${esc(statusLabel(finding.risk_level))}</td><td>${esc(finding.subject)}</td><td>${esc(finding.message)}</td><td>${esc((finding.affected_requirements || []).join(", "))}</td><td>${esc((finding.paths || []).join(", "))}</td><td>${esc(driftDeviationText(finding.deviation))}</td></tr>`).join("")
+    : `<tr><td colspan="8" class="empty">${esc(t("No drift recorded in this snapshot."))}</td></tr>`;
+  const driftBlock = `<header class="consistency-head"><div><span class="section-kicker">${esc(t("DRIFT QUEUE"))}</span><h3>${esc(t("Drift queue"))}</h3><p class="panel-meta">${esc(t("Every recorded drift, separated by kind. A finding is a prompt to confirm, not a verdict on the code."))}</p></div><div class="consistency-filters" role="group" aria-label="${esc(t("Drift queue filters"))}"><label>${esc(t("Kind"))}<select data-consistency-drift>${options(consistencyDriftKinds, driftKind, driftKindLabels)}</select></label></div></header><div class="consistency-table-wrap" tabindex="0" role="region" aria-label="${esc(t("Drift queue"))}"><table class="consistency-table"><thead><tr><th scope="col">${esc(t("Finding"))}</th><th scope="col">${esc(t("Kind"))}</th><th scope="col">${esc(t("Risk"))}</th><th scope="col">${esc(t("Subject"))}</th><th scope="col">${esc(t("Message"))}</th><th scope="col">${esc(t("Affected requirements"))}</th><th scope="col">${esc(t("Paths"))}</th><th scope="col">${esc(t("Deviation"))}</th></tr></thead><tbody>${driftBody}</tbody></table></div>${drift?.truncated ? `<p class="panel-meta">${esc(t("Drift findings are truncated; the absence of a finding is not an all-clear."))}</p>` : ""}`;
+  setHtml("consistencySection", els.consistencySection, `<header class="consistency-head"><div><span class="section-kicker">${esc(t("DESIGN CONSISTENCY"))}</span><h3>${esc(t("Design consistency"))}</h3><p class="panel-meta">${esc(t("Design intent, observed state and the delta between them. This matrix combines existing identities and does not replace the requirements or architecture views."))}</p></div><div class="consistency-filters" role="group" aria-label="${esc(t("Design consistency filters"))}"><label>${esc(t("Kind"))}<select data-consistency-kind>${options(consistencyKinds, kind, kindLabels)}</select></label><label>${esc(t("State"))}<select data-consistency-state>${options(consistencyStates, filter, stateLabels)}</select></label></div></header><div class="consistency-table-wrap" tabindex="0" role="region" aria-label="${esc(t("Design consistency matrix"))}"><table class="consistency-table"><thead><tr><th scope="col">${esc(t("Object"))}</th><th scope="col">${esc(t("Kind"))}</th><th scope="col">${esc(t("Design"))}</th><th scope="col">${esc(t("Observed"))}</th><th scope="col">${esc(t("Delta"))}</th></tr></thead><tbody>${body}</tbody></table></div>${driftBlock}`, () => {
     els.consistencySection.querySelectorAll("[data-consistency-kind]").forEach(select => select.addEventListener("change", () => { state.consistencyKind = select.value; renderConsistencyMatrix(); }));
     els.consistencySection.querySelectorAll("[data-consistency-state]").forEach(select => select.addEventListener("change", () => { state.consistencyState = select.value; renderConsistencyMatrix(); }));
+    els.consistencySection.querySelectorAll("[data-consistency-drift]").forEach(select => select.addEventListener("change", () => { state.consistencyDriftKind = select.value; renderConsistencyMatrix(); }));
     els.consistencySection.querySelectorAll("[data-consistency-row]").forEach(row => row.addEventListener("click", () => {
       row.querySelectorAll("a,button").forEach(() => {});
       executeCommand(row.dataset.consistencyRow);
     }));
+    els.consistencySection.querySelectorAll("[data-consistency-drift-row]").forEach(row => row.addEventListener("click", () => executeCommand(row.dataset.consistencyDriftRow)));
   });
 }

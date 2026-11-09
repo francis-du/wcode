@@ -202,6 +202,7 @@ const state = {
   architectureView: "blueprint",
   consistencyKind: "all",
   consistencyState: "all",
+  consistencyDriftKind: "all",
   drawerSection: "problems",
   drawerCollapsed: false,
   drawerJob: "",

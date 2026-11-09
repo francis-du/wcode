@@ -695,6 +695,9 @@ function executeCommand(command) {
   if (command === "theme") { els.theme?.click(); return; }
   if (paletteExecute(command)) return;
   if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });
+  // A command may also name a section inside a tab; those are not tabs of their
+  // own, so they resolve through the same reveal the in-page links use.
+  else if (workspaceTabForSection[command]) revealSection(command);
 }
 // The investigation position is both a history entry and a shareable hash:
 // #view=<tab>&ws=<workspace>. A hash from another workspace is ignored, so an old

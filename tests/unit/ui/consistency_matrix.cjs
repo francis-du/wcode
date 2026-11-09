@@ -24,6 +24,10 @@ const fixture = () => ({
       unit: 'ms', precision: 'runtime', revision_bound: false } }] } },
 });
 
+// The drift queue is a separate block below the matrix; a matrix filter must be
+// judged on the matrix alone, not on the queue that still lists every kind.
+const matrixOnly = html => html.slice(0, html.indexOf("DRIFT QUEUE"));
+
 test('the matrix shows design, observed state and delta for each kind', () => {
   const s = sandbox();
   s.context.fixture = fixture();
@@ -60,7 +64,7 @@ test('acceptance rows keep mapped, executed, outcome and freshness independent',
     'an unreferenced check must not borrow a criterion');
   assert.match(html, /passed and current/);
   assert.match(html, /mapped but not executed/);
-  assert.doesNotMatch(html, /REQ-A/);
+  assert.doesNotMatch(matrixOnly(html), /REQ-A/);
 });
 
 test('a requirement row links the drift to the convergence plan that claims it', () => {
@@ -82,6 +86,39 @@ test('a drift that no plan claims says so instead of implying convergence', () =
   s.context.fixture = { ...fixture(), reconciliation: [] };
   s.run('state.project=fixture;state.consistencyKind="requirement";state.consistencyState="all";renderConsistencyMatrix();');
   assert.match(s.node('#consistencySection').innerHTML, /no convergence plan references this drift/);
+});
+
+test('the drift queue separates the three drift kinds with their evidence fields', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    risk: { drift: { truncated: true, findings: [
+      { id: 'D-IMPL', kind: 'implementation_drift', risk_level: 'high', subject: 'REQ-A',
+        message: 'Implementation trace is incomplete', affected_requirements: ['REQ-A'],
+        paths: ['src/a.rs'], deviation: null },
+      { id: 'D-DESIGN', kind: 'design_drift', risk_level: 'medium', subject: 'component:one',
+        message: 'Actual state changed without a design change', affected_requirements: ['REQ-A'],
+        paths: ['src/b.rs'], deviation: null },
+      { id: 'D-RUNTIME', kind: 'runtime_drift', risk_level: 'low', subject: 'C-1',
+        message: 'Observed bound exceeded', affected_requirements: [], paths: [],
+        deviation: { metric: 'wait', expected_max: 30000, observed: 45000, deviation_percent: 50,
+          unit: 'ms', precision: 'runtime', revision_bound: true } }] } } };
+  s.run('state.project=fixture;state.consistencyDriftKind="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  for (const id of ['D-IMPL', 'D-DESIGN', 'D-RUNTIME']) assert.match(html, new RegExp(id));
+  assert.match(html, /implementation drift/);
+  assert.match(html, /design drift/);
+  assert.match(html, /runtime drift/);
+  assert.match(html, /45,000 \/ 30,000 ms/, 'a deviation keeps its numerator, denominator and unit');
+  assert.match(html, /revision-bound/, 'a revision-bound observation says so');
+  assert.match(html, /truncated/, 'a truncated queue says so');
+  assert.match(html, /data-consistency-drift-row="object:requirement:REQ-A"/);
+  assert.match(html, /data-consistency-drift-row="object:component:component:one"/);
+  assert.match(html, /data-consistency-drift-row="diagnosticsSection"/);
+  s.run('state.consistencyDriftKind="design_drift";renderConsistencyMatrix();');
+  const filtered = s.node('#consistencySection').innerHTML;
+  assert.match(filtered, /D-DESIGN/);
+  assert.doesNotMatch(filtered, /D-IMPL/);
+  assert.doesNotMatch(filtered, /D-RUNTIME/);
 });
 
 test('a criterion no check references appears as a missing acceptance item', () => {
@@ -116,7 +153,7 @@ test('the matrix filters by kind and an empty match says so', () => {
   s.run('state.project=fixture;state.consistencyKind="constraint";state.consistencyState="all";renderConsistencyMatrix();');
   const kindOnly = s.node('#consistencySection').innerHTML;
   assert.match(kindOnly, /C-1/);
-  assert.doesNotMatch(kindOnly, /REQ-A/);
+  assert.doesNotMatch(matrixOnly(kindOnly), /REQ-A/);
   s.run('state.consistencyKind="constraint";state.consistencyState="unobserved";renderConsistencyMatrix();');
   assert.match(s.node('#consistencySection').innerHTML, /No design object matches this filter./);
 });
