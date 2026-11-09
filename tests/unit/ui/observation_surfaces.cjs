@@ -118,6 +118,10 @@ test('the home status surfaces the worklist queue', () => {
   s.run('state.language="zh-CN";renderObservationCoverage();');
   assert.match(s.node('#observationCoverage').innerHTML, /4 项未完成 · 2 项阻塞/,
     'the counts keep their Simplified Chinese form');
+  s.context.fixture = { ...fixture(), execution: { available: false } };
+  s.run('state.language="en";state.project=fixture;renderObservationCoverage();');
+  assert.match(s.node('#observationCoverage').innerHTML, /Execution state unavailable/,
+    'a failed read is not reported as an absent checkpoint');
 });
 
 test('a shared hash restores the view it names', () => {

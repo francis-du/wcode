@@ -113,12 +113,16 @@ function renderObservationCoverage() {
     // the two numbers an operator acts on, and they should not wait behind a
     // tab switch.
     (() => {
-      const checkpoint = p.execution?.checkpoint;
+      const execution = p.execution, checkpoint = execution?.checkpoint;
       const open = Number(checkpoint?.open_items || 0), blocked = Number(checkpoint?.blocked_items || 0);
-      return [localized("Worklist", "任务队列"), "activitySection",
-        checkpoint
+      // A failed read and a checkpoint that was never created are different
+      // states; the surface says which one it is looking at.
+      const detail = execution?.available === false
+        ? localized("Execution state unavailable", "执行状态不可用")
+        : checkpoint
           ? localized(`${num(open)} open · ${num(blocked)} blocked`, `${num(open)} 项未完成 · ${num(blocked)} 项阻塞`)
-          : localized("No durable checkpoint yet", "暂无持久化检查点"),
+          : localized("No durable checkpoint yet", "暂无持久化检查点");
+      return [localized("Worklist", "任务队列"), "activitySection", detail,
         !checkpoint ? localized("Unavailable", "不可用") : blocked ? localized("Blocked", "有阻塞") : localized("Observed", "已观测")];
     })(),
     // The production-capability matrix keeps Fitness and the language providers
