@@ -157,6 +157,10 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
         ),
         workspace: input.workspace,
         root: input.root,
+        design: crate::intelligence_types::ProjectDesignObservatory {
+            acceptance: state.acceptance.clone(),
+            constraints: state.constraints.clone(),
+        },
         repository_revision: input.repository_revision,
         acceptance: None,
         project: state.project.as_ref().map(|project| project.name.clone()),

@@ -202,3 +202,18 @@ fn proof_reconciliation(
 ) -> AnyResult<(Value, Value, Value, Value)> {
     harness.intelligence_status_proof_reconciliation_snapshot(workspace_id, workspace, 100, 20, 20)
 }
+
+// The review identity and the running build are part of the same project
+// snapshot, so they travel with it instead of a second request that could be
+// observed at a different revision. `truncated` stays false only when the
+// review is a placeholder for an unavailable or cached snapshot, never for a
+// real review that was cut short.
+pub(super) fn attach_project_identity(value: &mut Value, review_reason: &str, truncated: bool) {
+    value["git_review"] = json!({"available": review_reason == "available", "reason": review_reason,
+        "truncated": truncated});
+    value["runtime"] = json!({"version": env!("CARGO_PKG_VERSION")});
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/integrations/mcp/web_project.rs"]
+mod tests;

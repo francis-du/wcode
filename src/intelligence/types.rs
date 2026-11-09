@@ -853,10 +853,17 @@ pub struct ProjectVerifiedLearningView {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ProjectDesignObservatory {
+    pub acceptance: BTreeMap<String, crate::design::AcceptanceCriterion>,
+    pub constraints: BTreeMap<String, crate::design::ConstraintDesign>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct ProjectObservatory {
     pub attention: crate::intelligence::ProjectAttentionView,
     pub workspace: String,
     pub root: String,
+    pub design: ProjectDesignObservatory,
     pub repository_revision: crate::evidence::Revision,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acceptance: Option<crate::verification::acceptance::ChangeAcceptanceRecord>,

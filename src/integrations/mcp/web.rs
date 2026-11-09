@@ -647,7 +647,7 @@ pub(super) async fn intelligence_web_project(
                 value["workspace_options"] = intelligence_workspace_options(&state);
                 value["execution"] = execution.clone();
                 value["worklist_revision"] = worklist_revision.clone();
-                value["git_review"] = json!({"available":false,"reason":"cached_snapshot"});
+                web_status::attach_project_identity(&mut value, "cached_snapshot", false);
                 value["git_observation"] = json!({"available":false,"reason":if workspace.exec_enabled() {"cached_snapshot"} else {"execution_disabled"}});
                 if !workspace.exec_enabled() {
                     value["acceptance"] = Value::Null;
@@ -699,10 +699,10 @@ pub(super) async fn intelligence_web_project(
         .await
         .ok();
     let review_started = std::time::Instant::now();
-    let (review, review_reason) = if !workspace.exec_enabled() {
-        (None, "execution_disabled")
+    let (review, review_reason, review_truncated) = if !workspace.exec_enabled() {
+        (None, "execution_disabled", false)
     } else if !workspace.root().join(".git").exists() {
-        (None, "not_a_repository")
+        (None, "not_a_repository", false)
     } else {
         match state
             .harness
@@ -715,13 +715,13 @@ pub(super) async fn intelligence_web_project(
                 } else {
                     "partial_review"
                 };
-                (Some(report), reason)
+                let truncated = report.truncated;
+                (Some(report), reason, truncated)
             }
-            Err(_) => (None, "review_failed"),
+            Err(_) => (None, "review_failed", false),
         }
     };
     let review_ms = review_started.elapsed().as_secs_f64() * 1_000.0;
-    let git_review = json!({"available": review_reason == "available", "reason": review_reason});
     let project_started = std::time::Instant::now();
     let project = state
         .harness
@@ -760,7 +760,7 @@ pub(super) async fn intelligence_web_project(
             value["workspace_options"] = intelligence_workspace_options(&state);
             value["worklist_revision"] = worklist_revision;
             value["execution"] = execution;
-            value["git_review"] = git_review;
+            web_status::attach_project_identity(&mut value, review_reason, review_truncated);
             value["activity"] = state.monitor.observatory_activity(&workspace_id);
             value["pending_authorizations"] = json!(state
                 .workspaces

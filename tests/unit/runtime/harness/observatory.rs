@@ -366,6 +366,16 @@ mod tests {
         .unwrap();
 
     assert!(project.design_valid);
+    assert_eq!(project.design.acceptance.len(), 1);
+    let criterion = project.design.acceptance.get("AC-FEATURE-001").unwrap();
+    assert_eq!(criterion.title, "Feature calls helper");
+    assert!(
+        matches!(&criterion.verification[0], crate::design::VerificationRef::Test { symbol, .. } if symbol == "tests::feature_flow")
+    );
+    assert!(project
+        .design
+        .constraints
+        .contains_key("CONSTRAINT-PARALLEL-FIRST"));
     assert_eq!(project.code.source_files, 1);
     assert!(project.code.source_lines >= 10);
     assert!(project
