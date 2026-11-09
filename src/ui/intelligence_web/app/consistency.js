@@ -210,22 +210,37 @@ function renderConsistencyMatrix() {
     `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(labels(value))}</option>`).join("");
   const kindLabels = value => ({ all: t("All kinds"), requirement: t("Requirements"), component: t("Components"), constraint: t("Constraints"), acceptance: t("Acceptance") })[value];
   const stateLabels = value => ({ all: t("All states"), needs_attention: t("Needs attention"), stable: t("Stable"), unobserved: t("Unobserved") })[value];
-  const body = rows.length ? rows.map(row => `<tr data-consistency-row="${esc(row.navigate)}"${row.state === "needs_attention" ? ' class="attention"' : ""}><th scope="row"><code>${esc(row.id)}</code></th><td>${esc(t({ requirement: "Requirement", component: "Component", constraint: "Constraint", acceptance: "Acceptance" }[row.kind]))}</td><td>${esc(row.design)}</td><td>${esc(row.actual)}</td><td>${esc(row.delta || stateLabels(row.state))}</td></tr>`).join("")
+  const body = rows.length ? rows.map(row => `<tr data-consistency-row="${esc(row.navigate)}" data-consistency-label="${esc(localized(`Open ${row.id}`, `打开 ${row.id}`))}" tabindex="0" role="button"${row.state === "needs_attention" ? ' class="attention"' : ""}><th scope="row"><code>${esc(row.id)}</code></th><td>${esc(t({ requirement: "Requirement", component: "Component", constraint: "Constraint", acceptance: "Acceptance" }[row.kind]))}</td><td>${esc(row.design)}</td><td>${esc(row.actual)}</td><td>${esc(row.delta || stateLabels(row.state))}</td></tr>`).join("")
     : `<tr><td colspan="5" class="empty">${esc(t("No design object matches this filter."))}</td></tr>`;
   const driftKind = consistencyDriftKinds.includes(state.consistencyDriftKind) ? state.consistencyDriftKind : "all";
   const drift = state.project?.risk?.drift;
   const driftRows = (drift?.findings || []).filter(finding => driftKind === "all" || finding.kind === driftKind);
-  const driftBody = driftRows.length ? driftRows.map(finding => `<tr data-consistency-drift-row="${esc(driftFindingTarget(finding))}"><th scope="row"><code>${esc(finding.id)}</code></th><td>${esc(driftKindLabels(finding.kind))}</td><td>${esc(statusLabel(finding.risk_level))}</td><td>${esc(finding.subject)}</td><td>${esc(finding.message)}</td><td>${esc((finding.affected_requirements || []).join(", "))}</td><td>${esc((finding.paths || []).join(", "))}</td><td>${esc(driftDeviationText(finding.deviation))}</td></tr>`).join("")
+  const driftBody = driftRows.length ? driftRows.map(finding => `<tr data-consistency-drift-row="${esc(driftFindingTarget(finding))}" data-consistency-drift-label="${esc(localized(`Open drift ${finding.id}`, `打开偏离 ${finding.id}`))}" tabindex="0" role="button"><th scope="row"><code>${esc(finding.id)}</code></th><td>${esc(driftKindLabels(finding.kind))}</td><td>${esc(statusLabel(finding.risk_level))}</td><td>${esc(finding.subject)}</td><td>${esc(finding.message)}</td><td>${esc((finding.affected_requirements || []).join(", "))}</td><td>${esc((finding.paths || []).join(", "))}</td><td>${esc(driftDeviationText(finding.deviation))}</td></tr>`).join("")
     : `<tr><td colspan="8" class="empty">${esc(t("No drift recorded in this snapshot."))}</td></tr>`;
   const driftBlock = `<header class="consistency-head"><div><span class="section-kicker">${esc(t("DRIFT QUEUE"))}</span><h3>${esc(t("Drift queue"))}</h3><p class="panel-meta">${esc(t("Every recorded drift, separated by kind. A finding is a prompt to confirm, not a verdict on the code."))}</p></div><div class="consistency-filters" role="group" aria-label="${esc(t("Drift queue filters"))}"><label>${esc(t("Kind"))}<select data-consistency-drift>${options(consistencyDriftKinds, driftKind, driftKindLabels)}</select></label></div></header><div class="consistency-table-wrap" tabindex="0" role="region" aria-label="${esc(t("Drift queue"))}"><table class="consistency-table"><thead><tr><th scope="col">${esc(t("Finding"))}</th><th scope="col">${esc(t("Kind"))}</th><th scope="col">${esc(t("Risk"))}</th><th scope="col">${esc(t("Subject"))}</th><th scope="col">${esc(t("Message"))}</th><th scope="col">${esc(t("Affected requirements"))}</th><th scope="col">${esc(t("Paths"))}</th><th scope="col">${esc(t("Deviation"))}</th></tr></thead><tbody>${driftBody}</tbody></table></div>${drift?.truncated ? `<p class="panel-meta">${esc(t("Drift findings are truncated; the absence of a finding is not an all-clear."))}</p>` : ""}`;
   setHtml("consistencySection", els.consistencySection, `<header class="consistency-head"><div><span class="section-kicker">${esc(t("DESIGN CONSISTENCY"))}</span><h3>${esc(t("Design consistency"))}</h3><p class="panel-meta">${esc(t("Design intent, observed state and the delta between them. This matrix combines existing identities and does not replace the requirements or architecture views."))}</p></div><div class="consistency-filters" role="group" aria-label="${esc(t("Design consistency filters"))}"><label>${esc(t("Kind"))}<select data-consistency-kind>${options(consistencyKinds, kind, kindLabels)}</select></label><label>${esc(t("State"))}<select data-consistency-state>${options(consistencyStates, filter, stateLabels)}</select></label></div></header><div class="consistency-table-wrap" tabindex="0" role="region" aria-label="${esc(t("Design consistency matrix"))}"><table class="consistency-table"><thead><tr><th scope="col">${esc(t("Object"))}</th><th scope="col">${esc(t("Kind"))}</th><th scope="col">${esc(t("Design"))}</th><th scope="col">${esc(t("Observed"))}</th><th scope="col">${esc(t("Delta"))}</th></tr></thead><tbody>${body}</tbody></table></div>${driftBlock}`, () => {
     els.consistencySection.querySelectorAll("[data-consistency-kind]").forEach(select => select.addEventListener("change", () => { state.consistencyKind = select.value; renderConsistencyMatrix(); }));
     els.consistencySection.querySelectorAll("[data-consistency-state]").forEach(select => select.addEventListener("change", () => { state.consistencyState = select.value; renderConsistencyMatrix(); }));
     els.consistencySection.querySelectorAll("[data-consistency-drift]").forEach(select => select.addEventListener("change", () => { state.consistencyDriftKind = select.value; renderConsistencyMatrix(); }));
-    els.consistencySection.querySelectorAll("[data-consistency-row]").forEach(row => row.addEventListener("click", () => {
+    // Both tables activate a row on click. A row is not a native control, so
+    // it also needs a focus stop and Enter/Space to keep the keyboard path
+    // visible; the label names the object it opens.
+    const activateRow = (row, command, label) => {
+      row.setAttribute("aria-label", label);
+      row.addEventListener("keydown", event => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        executeCommand(command);
+      });
+    };
+    els.consistencySection.querySelectorAll("[data-consistency-row]").forEach(row => {
       row.querySelectorAll("a,button").forEach(() => {});
-      executeCommand(row.dataset.consistencyRow);
-    }));
-    els.consistencySection.querySelectorAll("[data-consistency-drift-row]").forEach(row => row.addEventListener("click", () => executeCommand(row.dataset.consistencyDriftRow)));
+      activateRow(row, row.dataset.consistencyRow, row.dataset.consistencyLabel || row.dataset.consistencyRow);
+      row.addEventListener("click", () => executeCommand(row.dataset.consistencyRow));
+    });
+    els.consistencySection.querySelectorAll("[data-consistency-drift-row]").forEach(row => {
+      activateRow(row, row.dataset.consistencyDriftRow, row.dataset.consistencyDriftLabel || row.dataset.consistencyDriftRow);
+      row.addEventListener("click", () => executeCommand(row.dataset.consistencyDriftRow));
+    });
   });
 }

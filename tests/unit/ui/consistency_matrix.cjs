@@ -121,6 +121,15 @@ test('the drift queue separates the three drift kinds with their evidence fields
   assert.doesNotMatch(filtered, /D-RUNTIME/);
 });
 
+test('consistency rows keep a visible keyboard path', () => {
+  const s = sandbox();
+  s.context.fixture = fixture();
+  s.run('state.project=fixture;state.consistencyKind="all";state.consistencyState="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  assert.match(html, /data-consistency-row="object:requirement:REQ-A" data-consistency-label="Open REQ-A" tabindex="0" role="button"/);
+  assert.match(html, /data-consistency-drift-row="diagnosticsSection" data-consistency-drift-label="Open drift D-1" tabindex="0" role="button"/);
+});
+
 test('a criterion no check references appears as a missing acceptance item', () => {
   const s = sandbox();
   s.context.fixture = { ...fixture(),
