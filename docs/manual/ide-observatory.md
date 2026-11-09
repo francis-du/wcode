@@ -148,6 +148,8 @@ A command that names a section resolves through the same reveal the in-page link
 
 `tests/unit/ui/consistency_matrix.cjs` covers the matrix and the drift queue against the production bundle: the three kinds stay separate, a numeric deviation keeps its numerator, denominator and unit together, and filtering to one kind leaves the others out. These are functional behavior comparisons over fixed inputs, not a benchmark and not a claim about autonomous patch correctness.
 
+The home engineering status carries a Worklist surface with the unfinished and blocked counts, so the two numbers an operator acts on do not wait behind a tab switch. Every percentage in the status surfaces keeps its numerator and denominator beside it — context budget use, fresh acceptance coverage and a runtime deviation all show the counts they were computed from, and a value with no comparable figures says so instead of rendering as zero. Consistency rows are focus stops with an accessible label and Enter/Space activation, so the keyboard path stays visible.
+
 ### Primary-source research refresh (2026-10-30 UTC)
 
 Search became available after the initial source audit. The following primary sources were rechecked; this is a bounded review, not an exhaustive claim about the newest research.
