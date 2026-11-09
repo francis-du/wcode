@@ -100,27 +100,10 @@ async fn partial_discovery_cannot_pass_native_verification() {
             .reasons
             .iter()
             .any(|value| value == reason));
-        // The whole test suite shares one process-wide probe semaphore, so a
-        // sibling test can hold every slot and fail a real-Git probe without
-        // starting it. That is a scheduling artifact, not the behaviour under
-        // test, so wait for the capacity to drain instead of failing the case.
-        let review_deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        let review = loop {
-            match harness
-                .review_changes("discovery", &workspace, fixture_timeout_seconds(), &monitor)
-                .await
-            {
-                Ok(report) => break report,
-                Err(error) if error.to_string().contains("capacity remained busy") => {
-                    assert!(
-                        std::time::Instant::now() < review_deadline,
-                        "change review stayed saturated: {error}"
-                    );
-                    tokio::time::sleep(std::time::Duration::from_millis(1_000)).await;
-                }
-                Err(error) => panic!("change review failed: {error}"),
-            }
-        };
+        let review = harness
+            .review_changes("discovery", &workspace, fixture_timeout_seconds(), &monitor)
+            .await
+            .unwrap();
         let plan = harness
             .verification_plan("discovery", &workspace, &review)
             .unwrap();
@@ -235,27 +218,10 @@ async fn partial_discovery_cannot_pass_native_verification() {
             .checks
             .iter()
             .any(|check| check.id == "profile-discovery-completeness"));
-        // The whole test suite shares one process-wide probe semaphore, so a
-        // sibling test can hold every slot and fail a real-Git probe without
-        // starting it. That is a scheduling artifact, not the behaviour under
-        // test, so wait for the capacity to drain instead of failing the case.
-        let review_deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        let review = loop {
-            match harness
-                .review_changes("discovery", &workspace, fixture_timeout_seconds(), &monitor)
-                .await
-            {
-                Ok(report) => break report,
-                Err(error) if error.to_string().contains("capacity remained busy") => {
-                    assert!(
-                        std::time::Instant::now() < review_deadline,
-                        "change review stayed saturated: {error}"
-                    );
-                    tokio::time::sleep(std::time::Duration::from_millis(1_000)).await;
-                }
-                Err(error) => panic!("change review failed: {error}"),
-            }
-        };
+        let review = harness
+            .review_changes("discovery", &workspace, fixture_timeout_seconds(), &monitor)
+            .await
+            .unwrap();
         let new_plan = harness
             .verification_plan("discovery", &workspace, &review)
             .unwrap();

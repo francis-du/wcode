@@ -7,6 +7,11 @@ pub(super) mod counterexamples;
 #[path = "quality/verification_run.rs"]
 mod verification_run;
 
+/// How long a test waits for the shared probe semaphore to drain before it
+/// reports the capacity artifact. Mirrors the verification retry budget.
+#[cfg(test)]
+const REVIEW_PROBE_CAPACITY_RETRY_BUDGET: std::time::Duration = std::time::Duration::from_secs(45);
+
 impl ToolHarness {
     pub fn project_context(
         &self,
@@ -147,6 +152,53 @@ impl ToolHarness {
     }
 
     pub async fn review_changes<T: TaskTelemetry>(
+        &self,
+        workspace_id: impl Into<String>,
+        workspace: &Workspace,
+        timeout_seconds: u64,
+        monitor: &T,
+    ) -> Result<ChangeReviewReport> {
+        #[cfg(not(test))]
+        {
+            self.review_changes_once(workspace_id, workspace, timeout_seconds, monitor)
+                .await
+        }
+
+        #[cfg(test)]
+        {
+            // The whole test suite shares one process-wide probe semaphore, so
+            // under full-suite parallelism a real-Git review can fail only
+            // because every slot was held by a sibling test and the probe never
+            // started. That is a scheduling artifact, not the behaviour under
+            // test. Production callers keep the single attempt, and the
+            // production wait cap is unchanged, so a real failure still fails.
+            let workspace_id = workspace_id.into();
+            let deadline = std::time::Instant::now() + REVIEW_PROBE_CAPACITY_RETRY_BUDGET;
+            loop {
+                let result = self
+                    .review_changes_once(workspace_id.clone(), workspace, timeout_seconds, monitor)
+                    .await;
+                let saturated = result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.to_string().contains("capacity remained busy"));
+                if !saturated {
+                    return result;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "change review stayed saturated: {}",
+                    result
+                        .err()
+                        .map(|error| error.to_string())
+                        .unwrap_or_default()
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(1_000)).await;
+            }
+        }
+    }
+
+    async fn review_changes_once<T: TaskTelemetry>(
         &self,
         workspace_id: impl Into<String>,
         workspace: &Workspace,
