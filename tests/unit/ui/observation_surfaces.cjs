@@ -126,6 +126,21 @@ test('the home status carries the work queue counts', () => {
     'an unread checkpoint adds no counts');
 });
 
+test('the acceptance policy binding shows its scope and expiry', () => {
+  const s = sandbox();
+  const base = fixture();
+  s.context.fixture = { ...base, acceptance: { ...base.acceptance, state: 'ready', policy: {
+    snapshot_digest: `sha256:${'a'.repeat(64)}`, generation: 2, current_generation: 2, expires_at_ms: 1,
+    selection: { policy_id: 'POL-1', policy_version: 3, docs_only: true, matched_rules: ['r1', 'r2'] } } } };
+  s.run('state.project=fixture;renderAcceptanceSummary(null);');
+  const html = s.node('#statusSummary').innerHTML;
+  assert.match(html, /POL-1/);
+  assert.match(html, /Policy version 3/, 'the policy version is part of its identity');
+  assert.match(html, /2 matched rules/, 'the scope says how many rules matched');
+  assert.match(html, /docs only/);
+  assert.match(html, /expired/, 'an expiry in the past is marked as expired');
+});
+
 test('a shared hash restores the view it names', () => {
   const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
   s.run('state.current="A";');
