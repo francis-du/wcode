@@ -100,6 +100,11 @@ final class BrowserAudit: NSObject, WKNavigationDelegate {
         setRequirementFilter('all');
         const restored=[...document.querySelectorAll('.filter')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.filter);
         check(restored.length===1&&restored[0]==='all','requirement filter buttons follow a programmatic reset');
+        document.querySelector('.filter[data-filter="changed"]').click();
+        check(state.filter==='changed','requirement filter click updates the state');
+        const clicked=[...document.querySelectorAll('.filter')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.filter);
+        check(clicked.length===1&&clicked[0]==='changed','requirement filter click moves the active button');
+        setRequirementFilter('all');
       }
       if(state.workspaceTab==='architecture'&&state.architectureView==='codegraph'&&state.codeGraphInspectorOpen){
         const source=document.querySelector('.code-graph-source'),paging=source?.querySelector('.code-graph-source-paging');
