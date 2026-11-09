@@ -107,6 +107,19 @@ test('the context budget shows its tokens, not a percentage alone', () => {
   assert.match(html, /50%/, 'the derived percentage still appears');
 });
 
+test('the home status surfaces the worklist queue', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(), execution: { available: true, exists: true,
+    checkpoint: { open_items: 4, blocked_items: 2, done_items: 9, runnable: ['lane-a'] } } };
+  s.run('state.project=fixture;renderObservationCoverage();');
+  const html = s.node('#observationCoverage').innerHTML;
+  assert.match(html, /4 open · 2 blocked/, 'unfinished and blocked counts are visible at home');
+  assert.match(html, /data-summary-action="activitySection"/, 'the entry opens the task progress');
+  s.run('state.language="zh-CN";renderObservationCoverage();');
+  assert.match(s.node('#observationCoverage').innerHTML, /4 项未完成 · 2 项阻塞/,
+    'the counts keep their Simplified Chinese form');
+});
+
 test('a shared hash restores the view it names', () => {
   const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
   s.run('state.current="A";');
