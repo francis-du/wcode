@@ -9,7 +9,7 @@ permalink: /docs/change-inspection/
 
 # Read-only code changes
 
-In the next-version implementation, open **Current changes** and select a file path. The existing workspace opens an inline read-only unified diff, not an editor. Compare **HEAD → working tree**, **HEAD → index (staged)**, or **Index → working tree**. The left gutter is the original line, and the right gutter is the resulting line. Added and removed lines retain their signs as well as theme colors.
+Open **Current changes** and select a file path. The workbench opens an inline read-only unified diff, not an editor. Compare **HEAD → working tree**, **HEAD → index (staged)**, or **Index → working tree**. The left gutter is the original line, and the right gutter is the resulting line. Added and removed lines retain their signs as well as theme colors.
 
 A file snapshot records HEAD, selected index identity and current file SHA before and after inspection. Switching layers pins that captured snapshot; if it changes, the response contains no patch and asks you to reload. A snapshot is a bounded observation, not a transaction or continuous live proof. Project refresh, failed refresh, restored cache and workspace switches invalidate the view. Raw code is not added to the project snapshot cache or local storage.
 
