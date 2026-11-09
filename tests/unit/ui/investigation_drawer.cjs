@@ -116,6 +116,6 @@ test('the session record counts distinct positions once', () => {
   assert.match(s.node('#drawerTelemetry').textContent, /3 jumps/,
     'the readout follows a selection without waiting for a drawer repaint');
   s.run('renderInvestigationDrawer();');
-  assert.match(s.node('#drawerTelemetry').textContent, /3 jumps · 1 min/,
-    'the drawer shows the session record');
+  assert.match(s.node('#drawerTelemetry').textContent, /3 jumps · 1 s/,
+    'a short session reports seconds rather than rounding up to a minute');
 });

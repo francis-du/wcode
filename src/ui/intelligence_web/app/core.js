@@ -398,18 +398,23 @@ function investigationTelemetry() {
   const events = state.investigationEvents;
   const views = events.filter(event => event.kind === "view").length;
   const objects = events.filter(event => event.kind === "object").length;
-  const minutes = state.investigationStartedAtMs
-    ? Math.max(1, Math.round((Date.now() - state.investigationStartedAtMs) / 60000))
+  const elapsedMs = state.investigationStartedAtMs
+    ? Date.now() - state.investigationStartedAtMs
     : 0;
-  return { events: events.length, views, objects, minutes };
+  const minutes = elapsedMs >= 60_000 ? Math.max(1, Math.round(elapsedMs / 60_000)) : 0;
+  const seconds = elapsedMs < 60_000 ? Math.max(1, Math.round(elapsedMs / 1000)) : 0;
+  return { events: events.length, views, objects, minutes, seconds };
 }
 // The readout lives in the drawer head, which object selection does not
 // repaint, so every recorded event refreshes it directly.
 function renderInvestigationTelemetry() {
   if (!els.drawerTelemetry) return;
   const telemetry = investigationTelemetry();
+  const duration = telemetry.minutes
+    ? `${telemetry.minutes} ${localized("min", "分钟")}`
+    : `${telemetry.seconds} ${localized("s", "秒")}`;
   els.drawerTelemetry.textContent = telemetry.events
-    ? `${telemetry.events} ${localized("jumps", "次跳转")} · ${telemetry.minutes} ${localized("min", "分钟")}`
+    ? `${telemetry.events} ${localized("jumps", "次跳转")} · ${duration}`
     : "";
   els.drawerTelemetry.title = telemetry.events
     ? localized(`${telemetry.views} view switches · ${telemetry.objects} object selections · this session only`,
