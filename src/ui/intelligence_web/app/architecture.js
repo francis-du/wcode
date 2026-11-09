@@ -42,7 +42,22 @@ function architectureObservationIncomplete() {
 function architectureObservationNote() {
   const a = architectureData(), partial = state.project?.structure?.truncated;
   const pending = (a.dependencies || []).filter(edge => edge.desired && !edge.actual).length;
-  return `<div class="inspector-proof-note dependency-observation-note"><strong>${esc(localized("Dependency observation", "依赖观测"))}</strong><span>${esc(localized("Code relationships are not feature completion or executed verification. Unobserved declarations remain unknown.", "代码关系不代表功能完成或验证通过；未观测的设计依赖仍待核实。"))}</span>${pending ? `<span>${esc(localized(`${num(pending)} declared dependencies have not been observed.`, `${num(pending)} 条设计依赖尚未观测到。`))}</span>` : ""}${partial ? `<span>${esc(localized("This snapshot is partial; missing edges do not prove missing implementation.", "本次快照不完整；缺少依赖边不能证明缺少实现。"))}</span>` : ""}</div>`;
+  // The design's coverage percentages only mean something next to the counts
+  // they came from, and a zero denominator is "no applicable declaration",
+  // never full coverage.
+  const ratio = (part, whole, empty) => Number(whole) > 0 ? `${num(part)} / ${num(whole)}` : empty;
+  const observed = Number(a.observed_edges || 0), blocking = Number(a.blocking_drift_edges || 0),
+    desired = Number(a.desired_edges || 0), aligned = Number(a.aligned_edges || 0),
+    components = a.components || [],
+    // `architectureData` fills a zero default, so read the reported field
+    // itself: a missing count must not read as "no component has files".
+    withImplementation = Number(state.project?.architecture?.components_with_implementation
+      ?? components.filter(component => (component.implementation_files || 0) > 0).length);
+  const coverage = localized(
+    `Observed dependency drift ${ratio(blocking, observed, "not applicable")} · design coverage ${ratio(aligned, desired, "no declared dependencies")} · implementation coverage ${ratio(withImplementation, components.length, "no components")}`,
+    `已观测依赖偏离 ${ratio(blocking, observed, "无适用对象")} · 设计覆盖 ${ratio(aligned, desired, "无声明依赖")} · 实现覆盖 ${ratio(withImplementation, components.length, "无组件")}`,
+  );
+  return `<div class="inspector-proof-note dependency-observation-note"><strong>${esc(localized("Dependency observation", "依赖观测"))}</strong><span>${esc(localized("Code relationships are not feature completion or executed verification. Unobserved declarations remain unknown.", "代码关系不代表功能完成或验证通过；未观测的设计依赖仍待核实。"))}</span><span>${esc(coverage)}</span>${pending ? `<span>${esc(localized(`${num(pending)} declared dependencies have not been observed.`, `${num(pending)} 条设计依赖尚未观测到。`))}</span>` : ""}${partial ? `<span>${esc(localized("This snapshot is partial; missing edges do not prove missing implementation.", "本次快照不完整；缺少依赖边不能证明缺少实现。"))}</span>` : ""}</div>`;
 }
 function architectureEvidenceItem(evidence) {
   const names = new Map((architectureData().components || []).map(item => [item.id, item.name || item.id]));

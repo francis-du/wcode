@@ -143,6 +143,23 @@ test('a requirement row carries the drift that names it, whatever the kind', () 
   assert.match(html, /no convergence plan references this drift/);
 });
 
+test('the dependency observation states its coverage with counts, not percentages alone', () => {
+  const s = sandbox();
+  s.context.fixture = fixture();
+  s.run('state.project=fixture;');
+  const note = s.run('architectureObservationNote()');
+  assert.match(note, /0 \/ 1/, 'design coverage keeps its numerator and denominator');
+  assert.match(note, /1 \/ 1/, 'implementation coverage keeps its numerator and denominator');
+  assert.match(note, /not applicable/, 'a zero observed denominator is not read as full consistency');
+  s.context.fixture = { ...fixture(),
+    architecture: { components: [], dependencies: [], desired_edges: 0, observed_edges: 0,
+      aligned_edges: 0, blocking_drift_edges: 0, components_with_implementation: 0 } };
+  s.run('state.project=fixture;');
+  const empty = s.run('architectureObservationNote()');
+  assert.match(empty, /no declared dependencies/, 'a zero denominator is not advertised as full coverage');
+  assert.doesNotMatch(empty, /%/, 'no percentage is shown without the counts it came from');
+});
+
 test('a criterion no check references appears as a missing acceptance item', () => {
   const s = sandbox();
   s.context.fixture = { ...fixture(),
