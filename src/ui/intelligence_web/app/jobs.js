@@ -91,6 +91,9 @@ async function observeRuntimeJob(id = state.runtimeJobSelected, manual = true, a
   if (!token || state.runtimeJobsBusy) return false;
   if (id !== state.runtimeJobSelected) { state.runtimeJob = null; state.runtimeJobsUncertain = false; }
   state.runtimeJobSelected = id;
+  // A new exact observation supersedes a previous failure notice; leaving it
+  // would keep the old message under the newly selected job.
+  state.runtimeJobsMessage = "";
   const request = runtimeJobsRequest(); if (!request) return false;
   if (manual) state.runtimeJobsPolls = 0;
   try {

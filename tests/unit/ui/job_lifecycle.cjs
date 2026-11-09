@@ -119,3 +119,13 @@ test('lifecycle return preserves the final automatic observation and requires ex
   assert.equal(s.run('state.runtimeJobsPolls'),1);assert.ok(currentTimer(s));
   assert.ok(s.requests.every(request=>request.options.method==='GET'));
 });
+
+test('starting an exact observation clears the previous failure notice',async()=>{
+  const s=sandbox(false,true,{fakeTimers:true});
+  s.context.fixtureProject=project();
+  s.run('state.project=fixtureProject;state.workspaceTab="activity";state.autoRefresh=false;clearRuntimeJobs();state.runtimeJobs=[{task_id:"'+A+'",status:"working",origin:"ui"}];state.runtimeJobsLoaded=true;state.runtimeJobsMessage="status unavailable";');
+  const pending=s.run('observeRuntimeJob("'+A+'")');
+  assert.equal(s.run('state.runtimeJobsMessage'),'','a new exact observation clears the old notice');
+  await flush();respond(s.requests[0],job());await pending;
+  assert.equal(s.run('state.runtimeJob.task_id'),A);
+});

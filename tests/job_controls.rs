@@ -4,7 +4,7 @@ use std::process::Command;
 fn retained_job_controls_bind_scope_selection_and_poll_generation() {
     for (script, count) in [
         ("tests/unit/ui/job_controls.cjs", 22),
-        ("tests/unit/ui/job_lifecycle.cjs", 8),
+        ("tests/unit/ui/job_lifecycle.cjs", 9),
         ("tests/unit/ui/job_list_state.cjs", 9),
     ] {
         let output = Command::new("node")
