@@ -210,6 +210,7 @@ const state = {
   // landed on, with the workspace it belonged to. It measures this session
   // only; it is not a durable baseline.
   investigationEvents: [],
+  investigationEventsTruncated: false,
   investigationStartedAtMs: 0,
   drawerJob: "",
   drawerLabel: "",
@@ -391,6 +392,7 @@ function recordInvestigationEvent(kind, detail) {
   });
   if (state.investigationEvents.length > INVESTIGATION_EVENT_LIMIT) {
     state.investigationEvents.splice(0, state.investigationEvents.length - INVESTIGATION_EVENT_LIMIT);
+    state.investigationEventsTruncated = true;
   }
   renderInvestigationTelemetry();
 }
@@ -403,7 +405,8 @@ function investigationTelemetry() {
     : 0;
   const minutes = elapsedMs >= 60_000 ? Math.max(1, Math.round(elapsedMs / 60_000)) : 0;
   const seconds = elapsedMs < 60_000 ? Math.max(1, Math.round(elapsedMs / 1000)) : 0;
-  return { events: events.length, views, objects, minutes, seconds };
+  return { events: events.length, views, objects, minutes, seconds,
+    truncated: state.investigationEventsTruncated };
 }
 // The readout lives in the drawer head, which object selection does not
 // repaint, so every recorded event refreshes it directly.
@@ -414,7 +417,7 @@ function renderInvestigationTelemetry() {
     ? `${telemetry.minutes} ${localized("min", "分钟")}`
     : `${telemetry.seconds} ${localized("s", "秒")}`;
   els.drawerTelemetry.textContent = telemetry.events
-    ? `${telemetry.events} ${localized("jumps", "次跳转")} · ${duration}`
+    ? `${telemetry.events}${telemetry.truncated ? "+" : ""} ${localized("jumps", "次跳转")} · ${duration}`
     : "";
   els.drawerTelemetry.title = telemetry.events
     ? localized(`${telemetry.views} view switches · ${telemetry.objects} object selections · this session only`,

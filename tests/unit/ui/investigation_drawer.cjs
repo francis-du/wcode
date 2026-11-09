@@ -118,4 +118,10 @@ test('the session record counts distinct positions once', () => {
   s.run('renderInvestigationDrawer();');
   assert.match(s.node('#drawerTelemetry').textContent, /3 jumps · 1 s/,
     'a short session reports seconds rather than rounding up to a minute');
+  s.run('for(let i=0;i<101;i++)recordInvestigationEvent("view","x");');
+  const capped = JSON.parse(s.run('JSON.stringify(investigationTelemetry())'));
+  assert.equal(capped.events, 100, 'the session record keeps the most recent positions');
+  assert.equal(capped.truncated, true, 'a capped record says so');
+  assert.match(s.node('#drawerTelemetry').textContent, /100\+ jumps/,
+    'the readout does not present a capped count as exact');
 });
