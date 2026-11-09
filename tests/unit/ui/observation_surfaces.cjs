@@ -141,6 +141,14 @@ test('the acceptance policy binding shows its scope and expiry', () => {
   assert.match(html, /expired/, 'an expiry in the past is marked as expired');
 });
 
+test('a pending authorization shows when it was requested', () => {
+  const s = sandbox();
+  s.run('state.accessLoaded=true;state.authorizations=[{id:"AUTH-1",workspace:"A",kind:"command_access",summary:"authorize command: git",program:"git",created_at_ms:1700000000000}];renderAccess();');
+  const html = s.node('#authorizationList').innerHTML;
+  assert.match(html, /authorize command: git/);
+  assert.match(html, /requested/, 'the request time is visible so a stale request can be judged');
+});
+
 test('a shared hash restores the view it names', () => {
   const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
   s.run('state.current="A";');
