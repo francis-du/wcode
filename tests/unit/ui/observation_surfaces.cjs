@@ -149,6 +149,14 @@ test('a pending authorization shows when it was requested', () => {
   assert.match(html, /requested/, 'the request time is visible so a stale request can be judged');
 });
 
+test('the investigation link waits for a workspace', () => {
+  const s = sandbox(false, true, { hash: '' });
+  s.run('state.current="";state.workspaceTab="overview";syncInvestigationHash();');
+  assert.equal(s.history.lastUrl, '', 'no workspace means no link to share');
+  s.run('state.current="A";syncInvestigationHash();');
+  assert.match(s.history.lastUrl, /workspace=A/, 'the link appears once a workspace is known');
+});
+
 test('a shared hash restores the view it names', () => {
   const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
   s.run('state.current="A";');

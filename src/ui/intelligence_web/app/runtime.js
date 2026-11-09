@@ -725,6 +725,9 @@ function syncInvestigationHash() {
   const spec = `${state.workspaceTab}|${state.current}|${object}|${state.drawerLabel || ""}`;
   if (spec === lastInvestigationSpec) return;
   lastInvestigationSpec = spec;
+  // The workspace is part of the link. Before the snapshot names one, writing
+  // the hash would advertise an empty workspace that restores nothing.
+  if (!state.current) return;
   const params = new URLSearchParams();
   params.set("view", state.workspaceTab);
   params.set("workspace", state.current);
