@@ -89,3 +89,14 @@ test('selecting another job does not leave the previous job output in place', ()
     'the previous job output must not stay under the newly selected header');
   assert.match(html, /Reading retained output/, 'an unread job says it is being read');
 });
+
+test('clearing the job scope drops the drawer selection', () => {
+  const s = sandbox();
+  s.context.fixture = fixtureWith();
+  s.run('state.project=fixture;state.current="A";state.drawerJob="TASK-1";state.drawerSection="logs";renderInvestigationDrawer();');
+  assert.match(s.node('#drawerBody').innerHTML, /Reading retained output/);
+  s.run('clearRuntimeJobs();renderInvestigationDrawer();');
+  assert.equal(s.run('state.drawerJob'), '');
+  assert.match(s.node('#drawerBody').innerHTML, /Select a job/,
+    'a cleared scope must not keep waiting on the previous workspace job');
+});

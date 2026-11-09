@@ -37,7 +37,7 @@ function clearRuntimeJobs() {
   state.runtimeJobsSequence++; state.runtimeJobsController = null; state.runtimeJobsTimer = null;
   state.runtimeJobs = []; state.runtimeJobsLoaded = false; state.runtimeJobsTruncated = false;
   state.runtimeJobsStatusFilter = "all"; state.runtimeJobsOriginFilter = "all";
-  state.runtimeJob = null; state.runtimeJobSelected = ""; state.runtimeJobsBusy = false;
+  state.runtimeJob = null; state.runtimeJobSelected = ""; state.drawerJob = ""; state.runtimeJobsBusy = false;
   state.runtimeJobsMessage = ""; state.runtimeJobsUncertain = false; state.runtimeJobsPolls = 0;
   state.runtimeJobsScope = { workspace: state.current, owner: token, epoch: state.workspaceEpoch };
   state.runtimeJobOutputView = null;
