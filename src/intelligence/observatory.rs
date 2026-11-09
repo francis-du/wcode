@@ -42,6 +42,7 @@ pub(crate) struct ObservatoryInput<'a> {
     pub engineering_journal: ProjectEngineeringJournalView,
     pub reconciliation_plans: usize,
     pub latest_reconciliation_plan: Option<String>,
+    pub reconciliation: Vec<crate::reconcile::ReconciliationPlan>,
     pub change_ranges: Option<ChangedRangesSnapshot>,
 }
 
@@ -161,6 +162,17 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
             acceptance: state.acceptance.clone(),
             constraints: state.constraints.clone(),
         },
+        reconciliation: input
+            .reconciliation
+            .iter()
+            .map(
+                |plan| crate::intelligence_types::ProjectReconciliationPlanView {
+                    id: plan.id.clone(),
+                    drift_ids: plan.drift_ids.clone(),
+                    implementation_tasks: plan.implementation_tasks.clone(),
+                },
+            )
+            .collect(),
         repository_revision: input.repository_revision,
         acceptance: None,
         project: state.project.as_ref().map(|project| project.name.clone()),

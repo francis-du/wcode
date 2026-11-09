@@ -858,12 +858,23 @@ pub struct ProjectDesignObservatory {
     pub constraints: BTreeMap<String, crate::design::ConstraintDesign>,
 }
 
+// A plan is summarised by the drift it claims and the work it declares, so the
+// consistency matrix can say which plan answers a finding without shipping the
+// plan's whole verification and change-intent payload.
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectReconciliationPlanView {
+    pub id: String,
+    pub drift_ids: Vec<String>,
+    pub implementation_tasks: Vec<crate::reconcile::ReconciliationTask>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct ProjectObservatory {
     pub attention: crate::intelligence::ProjectAttentionView,
     pub workspace: String,
     pub root: String,
     pub design: ProjectDesignObservatory,
+    pub reconciliation: Vec<ProjectReconciliationPlanView>,
     pub repository_revision: crate::evidence::Revision,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acceptance: Option<crate::verification::acceptance::ChangeAcceptanceRecord>,

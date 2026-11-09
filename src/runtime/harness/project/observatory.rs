@@ -454,6 +454,7 @@ impl ToolHarness {
             engineering_journal,
             reconciliation_plans: reconciliation.len(),
             latest_reconciliation_plan,
+            reconciliation: reconciliation.clone(),
             change_ranges,
         });
         snapshot.attention =

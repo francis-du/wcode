@@ -199,6 +199,37 @@ fn reconciliation_and_verification_bind_identical_required_checks() {
 }
 
 #[test]
+fn observatory_reports_the_reconciliation_plan_that_claims_drift() {
+    let (root, workspace, harness) = fixture();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/lib.rs"), "pub fn entry() {}\n").unwrap();
+    fs::write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname = \"proof-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let mut review = clean_review();
+    review.risk_level = "high".into();
+    let plan = harness
+        .reconciliation_plan("proof", &workspace, &review)
+        .unwrap();
+    let project = harness
+        .project_observatory("proof", &workspace, None)
+        .unwrap();
+    let view = project
+        .reconciliation
+        .iter()
+        .find(|item| item.id == plan.id)
+        .expect("the declared plan must be observable");
+    assert_eq!(view.drift_ids, plan.drift_ids);
+    assert_eq!(
+        view.implementation_tasks.len(),
+        plan.implementation_tasks.len()
+    );
+    assert_ne!(view.implementation_tasks.len(), 0);
+}
+
+#[test]
 fn current_observatory_plans_require_both_code_and_design_revision() {
     let (root, workspace, harness) = fixture();
     let review = clean_review();

@@ -180,4 +180,8 @@ async fn project_payload_carries_design_review_truncation_and_runtime_identity()
         "the review scope must say whether it was cut short: {value}"
     );
     assert_eq!(value["git_review"]["reason"], "available", "{value}");
+    assert!(
+        value["reconciliation"].is_array(),
+        "the consistency matrix must be able to tell an unclaimed drift from an unknown plan list: {value}"
+    );
 }
