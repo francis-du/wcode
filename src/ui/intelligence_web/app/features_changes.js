@@ -224,7 +224,7 @@ function renderVerifiedLearning() {
 }
 function renderChanges() {
   const touched = wcodeChangedPaths();
-  const items = state.project.changes || [];
+  const items = state.project?.changes || [];
   const legend = touched && items.length
     ? `<p class="panel-meta">${esc(localized(
         "“wcode” marks a file this runtime changed through its own edit tools, as recorded in the engineering journal.",
