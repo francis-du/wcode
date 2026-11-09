@@ -379,6 +379,12 @@
 
     <section id="investigationDrawer" class="investigation-drawer" aria-label="Investigation panel" data-i18n-aria-label="Investigation panel">
       <header class="drawer-head">
+        <label class="drawer-label" title="Name this investigation; the label travels in the URL hash" data-i18n-title="Name this investigation; the label travels in the URL hash">
+          <span data-i18n="Investigation">Investigation</span>
+          <input id="drawerLabel" type="text" maxlength="80" autocomplete="off" spellcheck="false"
+            placeholder="Unnamed investigation" data-i18n-placeholder="Unnamed investigation"
+            aria-label="Investigation label" data-i18n-aria-label="Investigation label">
+        </label>
         <div class="drawer-tabs" role="group" aria-label="Investigation sections" data-i18n-aria-label="Investigation sections">
           <button type="button" data-drawer-section="problems" aria-pressed="true" data-i18n="Problems">Problems</button>
           <button type="button" data-drawer-section="jobs" aria-pressed="false" data-i18n="Jobs">Jobs</button>

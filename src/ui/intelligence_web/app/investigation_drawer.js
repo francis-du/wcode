@@ -59,6 +59,9 @@ function renderInvestigationDrawer() {
     els.drawerToggle.textContent = t(state.drawerCollapsed ? "Expand panel" : "Collapse panel");
   }
   els.investigationDrawer.classList.toggle("collapsed", Boolean(state.drawerCollapsed));
+  if (els.drawerLabel && document.activeElement !== els.drawerLabel) {
+    els.drawerLabel.value = state.drawerLabel || "";
+  }
   const body = section === "problems" ? drawerProblemsHtml()
     : section === "jobs" ? drawerJobsHtml()
       : section === "logs" ? drawerLogsHtml()

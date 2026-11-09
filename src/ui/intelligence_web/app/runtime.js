@@ -705,6 +705,7 @@ function investigationHash() {
     view: params.get("view") || "",
     workspace: params.get("workspace") || params.get("ws") || "",
     object: params.get("o") || "",
+    label: params.get("inv") || "",
   };
 }
 // The selected object joins the view in the same history entry. Rewriting the
@@ -718,13 +719,14 @@ function investigationObjectSpec() {
 let lastInvestigationSpec = "";
 function syncInvestigationHash() {
   const object = investigationObjectSpec();
-  const spec = `${state.workspaceTab}|${state.current}|${object}`;
+  const spec = `${state.workspaceTab}|${state.current}|${object}|${state.drawerLabel || ""}`;
   if (spec === lastInvestigationSpec) return;
   lastInvestigationSpec = spec;
   const params = new URLSearchParams();
   params.set("view", state.workspaceTab);
   params.set("workspace", state.current);
   if (object) params.set("o", object);
+  if (state.drawerLabel) params.set("inv", state.drawerLabel);
   try {
     window.history?.replaceState?.(
       { wcodeView: state.workspaceTab, wcodeWorkspace: state.current },
@@ -959,12 +961,19 @@ function startObservatory() {
     state.drawerCollapsed = !state.drawerCollapsed;
     renderInvestigationDrawer();
   });
+  els.drawerLabel?.addEventListener("change", () => {
+    state.drawerLabel = String(els.drawerLabel.value || "").trim().slice(0, 80);
+    syncInvestigationHash();
+    renderInvestigationDrawer();
+  });
   if (typeof wireCodeGraph === "function") wireCodeGraph();
   activateWorkspaceTab(initialViewFromHash());
   // A link may name an object directly; the palette command already knows how to
   // open each kind, so the hash reuses that single navigation path.
-  const hashObject = investigationHash().object;
-  if (hashObject) executeCommand(hashObject);
+  const hash = investigationHash();
+  // A link may carry an investigation label; the drawer keeps it while the user renames it.
+  state.drawerLabel = hash.label;
+  if (hash.object) executeCommand(hash.object);
   // Neither the initial render nor later project refreshes own the activity loop.
   void refreshTunnels();
   void activityTick();

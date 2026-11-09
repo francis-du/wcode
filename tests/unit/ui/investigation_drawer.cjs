@@ -48,6 +48,19 @@ test('the drawer does not read an unread job list as empty', () => {
   assert.match(s.node('#drawerBody').innerHTML, /No retained jobs in this snapshot/);
 });
 
+test('the drawer keeps the investigation label in the URL hash', () => {
+  const s = sandbox();
+  s.context.fixture = fixtureWith();
+  s.run('state.project=fixture;state.current="A";wireHistoryRestoration();renderInvestigationDrawer();');
+  s.run('state.drawerLabel="Queue cleanup";syncInvestigationHash();');
+  assert.match(s.history.lastUrl, /inv=Queue\+cleanup/, 'the label must be written to the hash');
+  // The reader is driven by the hash the browser actually holds.
+  s.run('location.hash="#view=files&workspace=A&inv=Queue+cleanup";');
+  assert.equal(s.run('investigationHash().label'), 'Queue cleanup');
+  s.run('state.drawerLabel=investigationHash().label;renderInvestigationDrawer();');
+  assert.equal(s.run('document.getElementById("drawerLabel").value'), 'Queue cleanup');
+});
+
 test('the drawer collapses without losing the selected section', () => {
   const s = sandbox();
   s.context.fixture = fixtureWith();
