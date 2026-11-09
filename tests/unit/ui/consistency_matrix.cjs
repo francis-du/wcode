@@ -130,6 +130,19 @@ test('consistency rows keep a visible keyboard path', () => {
   assert.match(html, /data-consistency-drift-row="diagnosticsSection" data-consistency-drift-label="Open drift D-1" tabindex="0" role="button"/);
 });
 
+test('a requirement row carries the drift that names it, whatever the kind', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    risk: { drift: { findings: [
+      { id: 'D-DESIGN', kind: 'design_drift', risk_level: 'medium', subject: 'component:one',
+        message: 'Actual state changed without a design change', affected_requirements: ['REQ-A'],
+        paths: ['src/actual.rs'], deviation: null }] } } };
+  s.run('state.project=fixture;state.consistencyKind="requirement";state.consistencyState="all";renderConsistencyMatrix();');
+  const html = matrixOnly(s.node('#consistencySection').innerHTML);
+  assert.match(html, /src\/actual\.rs/, 'the changed path behind the drift is visible');
+  assert.match(html, /no convergence plan references this drift/);
+});
+
 test('a criterion no check references appears as a missing acceptance item', () => {
   const s = sandbox();
   s.context.fixture = { ...fixture(),

@@ -7,10 +7,11 @@ const consistencyStates = ["all", "needs_attention", "stable", "unobserved"];
 
 const consistencyFindings = () => (state.project?.risk?.drift?.findings || [])
   .filter(item => item.kind === "runtime_drift");
-// A requirement row is answered by the drift that explains its trace: an
-// incomplete implementation/verification trace, or a runtime bound it breaks.
-const consistencyRequirementFindings = () => (state.project?.risk?.drift?.findings || [])
-  .filter(item => item.kind === "implementation_drift" || item.kind === "runtime_drift");
+// A requirement row is answered by every drift that names it: an incomplete
+// implementation/verification trace, a runtime bound it breaks, and an
+// actual-state change the design never recorded all describe the same
+// requirement, so filtering here would hide the reason it needs attention.
+const consistencyRequirementFindings = () => state.project?.risk?.drift?.findings || [];
 
 const consistencyDriftKinds = ["all", "implementation_drift", "design_drift", "runtime_drift"];
 const driftKindLabels = value => ({
