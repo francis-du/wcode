@@ -379,11 +379,11 @@
 
     <section id="investigationDrawer" class="investigation-drawer" aria-label="Investigation panel" data-i18n-aria-label="Investigation panel">
       <header class="drawer-head">
-        <div class="drawer-tabs" role="tablist" aria-label="Investigation sections" data-i18n-aria-label="Investigation sections">
-          <button type="button" role="tab" data-drawer-section="problems" aria-selected="true" data-i18n="Problems">Problems</button>
-          <button type="button" role="tab" data-drawer-section="jobs" aria-selected="false" data-i18n="Jobs">Jobs</button>
-          <button type="button" role="tab" data-drawer-section="logs" aria-selected="false" data-i18n="Logs">Logs</button>
-          <button type="button" role="tab" data-drawer-section="evidence" aria-selected="false" data-i18n="Evidence">Evidence</button>
+        <div class="drawer-tabs" role="group" aria-label="Investigation sections" data-i18n-aria-label="Investigation sections">
+          <button type="button" data-drawer-section="problems" aria-pressed="true" data-i18n="Problems">Problems</button>
+          <button type="button" data-drawer-section="jobs" aria-pressed="false" data-i18n="Jobs">Jobs</button>
+          <button type="button" data-drawer-section="logs" aria-pressed="false" data-i18n="Logs">Logs</button>
+          <button type="button" data-drawer-section="evidence" aria-pressed="false" data-i18n="Evidence">Evidence</button>
         </div>
         <button id="drawerToggle" type="button" class="quiet-action" aria-expanded="true" data-i18n="Collapse panel">Collapse panel</button>
       </header>

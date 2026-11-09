@@ -41,10 +41,12 @@ function renderInvestigationDrawer() {
   if (!els.investigationDrawer || !els.drawerBody) return;
   const section = drawerSections.includes(state.drawerSection) ? state.drawerSection : "problems";
   state.drawerSection = section;
+  // The drawer uses aria-pressed rather than a tab role: the workspace tabs are
+  // the page's only tab set, and a second selected tab would break that contract.
   document.querySelectorAll("[data-drawer-section]").forEach(button => {
     const active = button.dataset.drawerSection === section;
     button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
+    button.setAttribute("aria-pressed", String(active));
   });
   if (els.drawerToggle) {
     els.drawerToggle.setAttribute("aria-expanded", String(!state.drawerCollapsed));
