@@ -163,8 +163,14 @@ function renderStats() {
 }
 function runtimeDriftSummary(project = state.project) {
   const findings = (project?.risk?.drift?.findings || []).filter(item => item.kind === "runtime_drift");
-  const maxDeviation = findings.reduce((value, item) => Math.max(value, Number(item.deviation?.deviation_percent || 0)), 0);
-  return { findings, count: findings.length, maxDeviation };
+  // The peak keeps the values it was computed from: a percentage on its own
+  // cannot say what was measured or against which bound.
+  let maxDeviation = 0, peak = null;
+  for (const item of findings) {
+    const deviation = Number(item.deviation?.deviation_percent || 0);
+    if (deviation > maxDeviation) { maxDeviation = deviation; peak = item.deviation; }
+  }
+  return { findings, count: findings.length, maxDeviation, peak };
 }
 function attentionSignals() {
   const p = state.project, report = p?.attention;
@@ -203,7 +209,16 @@ function legacyAttentionSignals() {
   if (proof.current_failed) add("failure_evidence", "bad", localized("Failure evidence recorded", "存在失败证据"), localized(`${num(proof.current_failed)} records for this version. Inspect the latest verification, not the count alone.`, `当前版本有 ${num(proof.current_failed)} 条失败记录，请核对最新验证结果。`), "proofSection");
   if (p.architecture?.blocking_drift_edges) add("blocking_drift", "bad", localized("Confirmed architecture drift", "已确认架构偏离"), localized(`${num(p.architecture.blocking_drift_edges)} dependencies have strong drift evidence.`, `${num(p.architecture.blocking_drift_edges)} 条依赖具有强证据偏离。`), "architectureSection");
   const runtimeDrift = runtimeDriftSummary(p);
-  if (runtimeDrift.count) add("runtime_drift", "warn", localized(`${num(runtimeDrift.count)} runtime drift signals`, `${num(runtimeDrift.count)} 项运行时偏离`), localized(`Peak observed deviation is ${num(runtimeDrift.maxDeviation)}%. Runtime observations are shown separately from structural dependency drift.`, `观测到的最大偏离为 ${num(runtimeDrift.maxDeviation)}%。运行时偏离与结构依赖偏离分开计算。`), "diagnosticsSection");
+  if (runtimeDrift.count) {
+    const peak = runtimeDrift.peak;
+    // A percentage without its numerator and denominator is not shown as if
+    // the values were zero; a peak with no comparable value says so instead.
+    const comparable = Boolean(peak && peak.observed != null && peak.expected_max != null);
+    const detail = comparable
+      ? localized(`Peak observed deviation is ${num(runtimeDrift.maxDeviation)}% (${num(peak.observed)} / ${num(peak.expected_max)} ${peak.unit || ""}). Runtime observations are shown separately from structural dependency drift.`, `观测到的最大偏离为 ${num(runtimeDrift.maxDeviation)}%（${num(peak.observed)} / ${num(peak.expected_max)} ${peak.unit || ""}）。运行时偏离与结构依赖偏离分开计算。`)
+      : localized(`${num(runtimeDrift.count)} runtime drift signals without a comparable value. Runtime observations are shown separately from structural dependency drift.`, `${num(runtimeDrift.count)} 项运行时偏离没有可比较的数值。运行时偏离与结构依赖偏离分开计算。`);
+    add("runtime_drift", "warn", localized(`${num(runtimeDrift.count)} runtime drift signals`, `${num(runtimeDrift.count)} 项运行时偏离`), detail, "diagnosticsSection");
+  }
   if (pending) add("pending_approvals", "warn", localized(`${num(pending)} requests need approval`, `${num(pending)} 项请求等待批准`), localized("Review the exact operation before allowing it.", "检查具体操作后再决定批准或拒绝。"), "access");
   if (proof.current_verification_blocked) add("verification_blocked", "warn", localized("Verification plans are blocked", "验证计划尚未就绪"), localized(`${num(proof.current_verification_blocked)} current plans still have gates to satisfy.`, `${num(proof.current_verification_blocked)} 个当前计划仍有门禁未满足。`), "proofSection");
   if (!proof.current_evidence) add("unverified_version", "info", localized("This version is not verified yet", "当前版本尚未验证"), localized("No current-version evidence was returned. Historical passes and mapped tests are not proof.", "没有返回当前版本证据。历史通过和测试映射都不能代替本次验证。"), "proofSection");

@@ -75,6 +75,27 @@ test('the investigation link follows the selected requirement', () => {
   assert.doesNotMatch(s.history.lastUrl, /REQ-B/, 'the previous object leaves the link');
 });
 
+test('a runtime drift signal keeps its percentage next to the values it came from', () => {
+  const finding = deviation => ({ id: 'D-1', kind: 'runtime_drift', risk_level: 'high',
+    subject: 'C-1', message: 'bound exceeded', affected_requirements: [], paths: [], deviation });
+  const s = sandbox();
+  s.context.fixture = { ...fixture(), risk: { drift: { findings: [finding(
+    { metric: 'queue_wait_ms', expected_max: 100, observed: 250, deviation_percent: 150,
+      unit: 'ms', precision: 'runtime', revision_bound: false })] } } };
+  s.run('state.project=fixture;');
+  const drift = JSON.parse(s.run('JSON.stringify(attentionSignals())'))
+    .find(item => item.title.includes('runtime drift'));
+  assert.match(drift.detail, /150%/);
+  assert.match(drift.detail, /250 \/ 100 ms/, 'the peak keeps its numerator, denominator and unit');
+
+  s.context.fixture = { ...fixture(), risk: { drift: { findings: [finding({ deviation_percent: 40 })] } } };
+  s.run('state.project=fixture;');
+  const uncomparable = JSON.parse(s.run('JSON.stringify(attentionSignals())'))
+    .find(item => item.title.includes('runtime drift'));
+  assert.match(uncomparable.detail, /without a comparable value/);
+  assert.doesNotMatch(uncomparable.detail, /0 \/ 0/, 'absent values must not render as zero');
+});
+
 test('a shared hash restores the view it names', () => {
   const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
   s.run('state.current="A";');
