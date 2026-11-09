@@ -35,7 +35,7 @@ test('the drawer lists retained jobs and keeps a selection for logs', () => {
   s.run('state.drawerSection="logs";renderInvestigationDrawer();');
   assert.match(s.node('#drawerBody').innerHTML, /Select a job/,
     'logs must not invent output before a job is chosen');
-  s.run('state.drawerJob="TASK-1";state.runtimeJob={status:"working",origin:"ui",stdout:{text:"line one\\nline two",total_bytes:18,truncated:false,redacted:false},stderr:{text:"",total_bytes:0,truncated:false,redacted:false}};renderInvestigationDrawer();');
+  s.run('state.drawerJob="TASK-1";state.runtimeJob={task_id:"TASK-1",status:"working",origin:"ui",stdout:{text:"line one\\nline two",total_bytes:18,truncated:false,redacted:false},stderr:{text:"",total_bytes:0,truncated:false,redacted:false}};renderInvestigationDrawer();');
   const logs = s.node('#drawerBody').innerHTML;
   assert.match(logs, /TASK-1/);
   assert.match(logs, /line two/, 'the retained output tail must be visible');
@@ -71,4 +71,21 @@ test('the drawer collapses without losing the selected section', () => {
   s.run('state.drawerCollapsed=true;renderInvestigationDrawer();');
   assert.equal(s.run('state.drawerSection'), 'jobs');
   assert.equal(s.run('state.drawerCollapsed'), true);
+});
+
+test('selecting another job does not leave the previous job output in place', () => {
+  const first = `TASK-${'1'.repeat(20)}-${'a'.repeat(32)}`;
+  const second = `TASK-${'2'.repeat(20)}-${'b'.repeat(32)}`;
+  const s = sandbox();
+  s.context.fixture = fixtureWith();
+  s.run('state.project=fixture;state.current="A";');
+  s.run(`state.runtimeJobs=[{task_id:"${first}",status:"working",origin:"ui"},{task_id:"${second}",status:"working",origin:"ui"}];`);
+  s.run(`state.drawerJob="${first}";state.runtimeJobSelected="${first}";state.runtimeJob={task_id:"${first}",status:"working",origin:"ui",stdout:{text:"first-output",total_bytes:11,truncated:false,redacted:false},stderr:{text:"",total_bytes:0,truncated:false,redacted:false}};`);
+  s.run('state.drawerSection="logs";renderInvestigationDrawer();');
+  assert.match(s.node('#drawerBody').innerHTML, /first-output/);
+  s.run(`state.drawerJob="${second}";state.runtimeJobSelected="${second}";state.drawerSection="logs";renderInvestigationDrawer();`);
+  const html = s.node('#drawerBody').innerHTML;
+  assert.doesNotMatch(html, /first-output/,
+    'the previous job output must not stay under the newly selected header');
+  assert.match(html, /Reading retained output/, 'an unread job says it is being read');
 });

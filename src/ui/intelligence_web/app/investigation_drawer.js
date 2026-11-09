@@ -25,8 +25,15 @@ function drawerJobsHtml() {
 
 function drawerLogsHtml() {
   const job = state.runtimeJob;
-  if (!state.drawerJob || !job) {
-    return `<p class="drawer-empty">${esc(t("Select a job to read its retained output."))}</p><button type="button" class="quiet-action" data-drawer-action="open-view" data-drawer-view="activitySection">${esc(t("Open task activity"))}</button>`;
+  const openActivity = `<button type="button" class="quiet-action" data-drawer-action="open-view" data-drawer-view="activitySection">${esc(t("Open task activity"))}</button>`;
+  if (!state.drawerJob) {
+    return `<p class="drawer-empty">${esc(t("Select a job to read its retained output."))}</p>${openActivity}`;
+  }
+  // The header names the selected job, so the body must never keep showing a
+  // different job's output while the selected one is still unread.
+  if (!job || job.task_id !== state.drawerJob) {
+    const notice = state.runtimeJobsMessage ? `<p class="drawer-notice">${esc(state.runtimeJobsMessage)}</p>` : "";
+    return `<p class="drawer-empty">${esc(localized("Reading retained output for this job…", "正在读取该任务的保留输出…"))}</p>${notice}${openActivity}`;
   }
   // A bounded tail of the retained window, not the whole stream: the drawer is a
   // compact projection, and the activity view still owns the full output.
@@ -91,9 +98,14 @@ function renderInvestigationDrawer() {
           requirement: button.dataset.summaryRequirement,
         });
       } else if (action === "select-job") {
-        state.drawerJob = button.dataset.drawerJob;
-        state.runtimeJobSelected = state.drawerJob;
+        const id = button.dataset.drawerJob;
+        state.drawerJob = id;
+        state.runtimeJobSelected = id;
         state.drawerSection = "logs";
+        if (state.runtimeJob?.task_id !== id) state.runtimeJob = null;
+        // Load the selected job's own retained output; the observation lands
+        // after this render, so the drawer is repainted when it settles.
+        void observeRuntimeJob(id, true, null).then(renderInvestigationDrawer);
       } else if (action === "open-view") {
         revealSection(button.dataset.drawerView);
       }
