@@ -54,6 +54,8 @@ test('acceptance rows keep mapped, executed, outcome and freshness independent',
   assert.match(html, /CHK-1/);
   assert.match(html, /CHK-2/);
   assert.match(html, /Tests stay green/, 'the referencing criterion must be named');
+  assert.match(html, /The suite passes/, 'the criterion statement must be shown');
+  assert.match(html, /1 check/, 'the criterion verification references must be counted');
   assert.match(html, /no acceptance criterion references this check/,
     'an unreferenced check must not borrow a criterion');
   assert.match(html, /passed and current/);
@@ -80,6 +82,19 @@ test('a drift that no plan claims says so instead of implying convergence', () =
   s.context.fixture = { ...fixture(), reconciliation: [] };
   s.run('state.project=fixture;state.consistencyKind="requirement";state.consistencyState="all";renderConsistencyMatrix();');
   assert.match(s.node('#consistencySection').innerHTML, /no convergence plan references this drift/);
+});
+
+test('a criterion no check references appears as a missing acceptance item', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    design: { acceptance: { 'AC-GAP': { id: 'AC-GAP', title: 'Manual review',
+      statement: 'A human reviews the change', verification: [] } } },
+    proof: { acceptance: { checks: [] } } };
+  s.run('state.project=fixture;state.consistencyKind="acceptance";state.consistencyState="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  assert.match(html, /AC-GAP/);
+  assert.match(html, /no verification ref/);
+  assert.match(html, /no check references this criterion/);
 });
 
 test('component rows carry truncation and empty-sample boundaries', () => {

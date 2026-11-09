@@ -175,6 +175,8 @@ const translations = {
     "observation without a comparable value": "观测没有可比较的数值",
     "No design object matches this filter.": "没有设计对象匹配该筛选。",
     "no acceptance criterion references this check": "没有验收准则引用此检查",
+    "no verification ref": "无验证引用",
+    "no check references this criterion": "没有检查引用该准则",
     "no convergence plan references this drift": "没有收敛计划引用该偏离",
     "Investigation panel": "调查面板",
     "Investigation sections": "调查分区",

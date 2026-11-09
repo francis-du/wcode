@@ -105,11 +105,21 @@ const consistencyRows = () => {
             : t("passed and current");
     const criteria = Object.values(design.acceptance || {}).filter(criterion =>
       (criterion.verification || []).some(reference => reference.kind === "check" && reference.id === check.id));
+    // A criterion that names the check but declares no verification reference is
+    // a gap, so it is stated rather than silently omitted.
+    const criterionText = criterion => {
+      const refs = criterion.verification || [];
+      const kinds = [...new Set(refs.map(reference => reference.kind))].join("/");
+      const statement = typeof criterion.statement === "string" && criterion.statement.trim()
+        ? ` — ${criterion.statement.trim().slice(0, 120)}`
+        : "";
+      return `${criterion.title || criterion.id}${statement} [${refs.length} ${kinds}]`;
+    };
     rows.push({
       id: check.id,
       kind: "acceptance",
       design: criteria.length
-        ? criteria.map(criterion => criterion.title || criterion.id).join(" / ")
+        ? criteria.map(criterionText).join(" / ")
         : t("no acceptance criterion references this check"),
       actual: [mapped ? t("mapped") : t("not mapped"),
         `${t("Required")}: ${check.required_level || "—"}`,
@@ -119,6 +129,23 @@ const consistencyRows = () => {
         `${t("Freshness")}: ${check.freshness || "—"}`].filter(Boolean).join(" · "),
       state: !mapped || !executed || failed ? "needs_attention" : !fresh ? "needs_attention" : "stable",
       delta,
+      navigate: "proofSection",
+    });
+  }
+  // A declared criterion that no check references is a missing acceptance item.
+  // It has no verification row to attach to, so the matrix shows it directly.
+  for (const criterion of Object.values(design.acceptance || {})) {
+    const refs = (criterion.verification || []).filter(reference => reference.kind === "check");
+    if (refs.length) continue;
+    const statement = typeof criterion.statement === "string" && criterion.statement.trim()
+      ? ` — ${criterion.statement.trim().slice(0, 120)}`
+      : "";
+    rows.push({
+      id: criterion.id,
+      kind: "acceptance",
+      design: `${criterion.title || criterion.id}${statement} [${t("no verification ref")}]`,
+      actual: t("no check references this criterion"),
+      state: "needs_attention",
       navigate: "proofSection",
     });
   }
