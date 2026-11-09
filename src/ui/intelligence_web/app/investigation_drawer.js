@@ -28,7 +28,22 @@ function drawerLogsHtml() {
   if (!state.drawerJob || !job) {
     return `<p class="drawer-empty">${esc(t("Select a job to read its retained output."))}</p><button type="button" class="quiet-action" data-drawer-action="open-view" data-drawer-view="activitySection">${esc(t("Open task activity"))}</button>`;
   }
-  return `<div class="drawer-log-head"><code>${esc(state.drawerJob)}</code><span>${esc(localized(`status ${job.status || "unknown"} · origin ${job.origin || "unknown"}`, `状态 ${job.status || "未知"} · 来源 ${job.origin || "未知"}`))}</span></div><p class="drawer-empty">${esc(t("Retained output is read in the activity view; this panel keeps the selection while you change views."))}</p><button type="button" class="quiet-action" data-drawer-action="open-view" data-drawer-view="activitySection">${esc(t("Open retained output"))}</button>`;
+  // A bounded tail of the retained window, not the whole stream: the drawer is a
+  // compact projection, and the activity view still owns the full output.
+  const preview = ["stdout", "stderr"].map(name => {
+    const stream = job[name];
+    if (!stream || typeof stream.text !== "string" || !stream.text) return "";
+    const tail = stream.text.replace(/\r\n?/g, "\n").split("\n").slice(-12).join("\n");
+    return `<div class="drawer-log-stream">${esc(name)}</div><pre class="drawer-log">${esc(tail)}</pre>`;
+  }).join("");
+  const notices = [
+    job.stdout?.truncated || job.stderr?.truncated ? t("Output was truncated before display; the tail is shown.") : "",
+    job.stdout?.redacted || job.stderr?.redacted ? t("Output was redacted before display.") : "",
+  ].filter(Boolean).map(text => `<p class="drawer-notice">${esc(text)}</p>`).join("");
+  return `<div class="drawer-log-head"><code>${esc(state.drawerJob)}</code><span>${esc(localized(`status ${job.status || "unknown"} · origin ${job.origin || "unknown"}`, `状态 ${job.status || "未知"} · 来源 ${job.origin || "未知"}`))}</span></div>`
+    + (preview || `<p class="drawer-empty">${esc(t("No retained output for this job."))}</p>`)
+    + notices
+    + `<button type="button" class="quiet-action" data-drawer-action="open-view" data-drawer-view="activitySection">${esc(t("Open retained output"))}</button>`;
 }
 
 function drawerEvidenceHtml() {

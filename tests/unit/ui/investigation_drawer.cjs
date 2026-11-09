@@ -35,8 +35,11 @@ test('the drawer lists retained jobs and keeps a selection for logs', () => {
   s.run('state.drawerSection="logs";renderInvestigationDrawer();');
   assert.match(s.node('#drawerBody').innerHTML, /Select a job/,
     'logs must not invent output before a job is chosen');
-  s.run('state.drawerJob="TASK-1";state.runtimeJob={status:"working",origin:"ui"};renderInvestigationDrawer();');
-  assert.match(s.node('#drawerBody').innerHTML, /TASK-1/);
+  s.run('state.drawerJob="TASK-1";state.runtimeJob={status:"working",origin:"ui",stdout:{text:"line one\\nline two",total_bytes:18,truncated:false,redacted:false},stderr:{text:"",total_bytes:0,truncated:false,redacted:false}};renderInvestigationDrawer();');
+  const logs = s.node('#drawerBody').innerHTML;
+  assert.match(logs, /TASK-1/);
+  assert.match(logs, /line two/, 'the retained output tail must be visible');
+  assert.match(logs, /stdout/);
 });
 
 test('the drawer does not read an unread job list as empty', () => {
