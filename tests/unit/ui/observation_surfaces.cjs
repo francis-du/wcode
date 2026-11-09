@@ -157,6 +157,21 @@ test('the investigation link waits for a workspace', () => {
   assert.match(s.history.lastUrl, /workspace=A/, 'the link appears once a workspace is known');
 });
 
+test('clearing the workspace resets the system map controls too', () => {
+  const s = sandbox();
+  s.context.fixture = fixture();
+  s.run('state.project=fixture;state.current="A";setSystemMapScale(1.2);setSystemMapFull(true);');
+  assert.equal(s.run('els.systemMapZoomValue.textContent'), '120%');
+  s.run('clearWorkspaceView();');
+  assert.equal(s.run('els.systemMapZoomValue.textContent'), '100%',
+    'the zoom readout follows the reset scale');
+  assert.equal(s.run('els.systemMapFit.getAttribute("aria-pressed")'), 'true',
+    'the fit button follows the reset fit state');
+  assert.equal(s.run('els.systemMapFull.textContent'), 'Open full map',
+    'the full-map button must not offer to exit a map that is no longer full');
+  assert.equal(s.run('els.systemMapFull.getAttribute("aria-pressed")'), 'false');
+});
+
 test('a shared hash restores the view it names', () => {
   const s = sandbox(false, true, { hash: '#view=proof&ws=A' });
   s.run('state.current="A";');

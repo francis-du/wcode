@@ -280,15 +280,17 @@ function fitSystemMap() {
   setSystemMapScale(scale, { fit: true });
   canvas.scrollTo?.({ left: 0, top: canvas.scrollTop, behavior: "smooth" });
 }
+function syncSystemMapFullControl() {
+  document.querySelector(".architecture-layout")?.classList.toggle("full-map", state.systemMapFull);
+  if (!els.systemMapFull) return;
+  els.systemMapFull.textContent = state.systemMapFull
+    ? localized("Exit full map", "退出全图")
+    : localized("Open full map", "打开全图");
+  els.systemMapFull.setAttribute("aria-pressed", String(state.systemMapFull));
+}
 function setSystemMapFull(enabled) {
   state.systemMapFull = Boolean(enabled);
-  document.querySelector(".architecture-layout")?.classList.toggle("full-map", state.systemMapFull);
-  if (els.systemMapFull) {
-    els.systemMapFull.textContent = state.systemMapFull
-      ? localized("Exit full map", "退出全图")
-      : localized("Open full map", "打开全图");
-    els.systemMapFull.setAttribute("aria-pressed", String(state.systemMapFull));
-  }
+  syncSystemMapFullControl();
   if (state.systemMapFit) requestAnimationFrame(fitSystemMap);
 }
 function renderSubsystemInspector() {

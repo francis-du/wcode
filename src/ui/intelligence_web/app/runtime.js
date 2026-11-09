@@ -344,7 +344,10 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.codeGraphView = "overview"; state.codeGraphSearchResults = [];
   state.codeGraphLoading = false; state.codeGraphError = ""; state.selectedCodeNode = "";
   state.codeGraphPaintKey = "";
+  // Resetting the state alone would leave the zoom readout, the fit button and
+  // the full-map button showing the previous workspace's view.
   state.systemMapScale = 1; state.systemMapFit = true; state.systemMapFull = false;
+  applySystemMapScale(); syncSystemMapFullControl();
   state.revisionKey = null; state.lastUpdated = 0; state.lastChecked = 0;
   state.activitySnapshot = null; state.activityUpdated = 0; state.activityError = false;
   if (els.projectNavigator) els.projectNavigator.value = "";
