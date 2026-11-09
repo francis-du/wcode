@@ -155,7 +155,7 @@ While editing:
   bounded wcode edit tools.
 - Use a parallel-first execution bias. Before the next tool call, split work
   into dependency lanes. When `readiness.parallelism.strategy` is
-  `top_level_concurrent_calls`, launch concurrent top-level wcode calls for
+  `parallel_required`, launch concurrent top-level wcode calls for
   independent discovery, reads, checks,
   reviews, and non-overlapping file edits together in that next action; do not
   serialize them merely because sequential execution is simpler. Serialize only
