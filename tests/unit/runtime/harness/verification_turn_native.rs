@@ -43,7 +43,7 @@ async fn real_cargo_phase_with_static_gate(hold: Duration, pause_static: bool) {
     // waits before reporting that the fixture never reached its barrier.
     let startup_timeout = Duration::from_secs(if cfg!(windows) { 60 } else { 30 });
     let check_timeout = if cfg!(windows) { 180 } else { 120 };
-    let finish_timeout = Duration::from_secs(if cfg!(windows) { 60 } else { 60 });
+    let finish_timeout = Duration::from_secs(60);
     let root = tempfile::tempdir().unwrap();
     for (relative, name) in [(".", "phase_root"), ("apps/console", "phase_console")] {
         let directory = root.path().join(relative);
