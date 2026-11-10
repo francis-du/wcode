@@ -171,6 +171,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
                     id: plan.id.clone(),
                     drift_ids: plan.drift_ids.clone(),
                     implementation_tasks: plan.implementation_tasks.clone(),
+                    revision: plan.verification_plan.revision.clone(),
                 },
             )
             .collect(),

@@ -92,6 +92,21 @@ test('a requirement row links the drift to the convergence plan that claims it',
   assert.doesNotMatch(html, /no convergence plan references this drift/);
 });
 
+test('a plan bound to another revision is marked superseded instead of reading as current', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    repository_revision: { code: 'sha256:' + 'a'.repeat(64), design: null },
+    reconciliation: [{ id: 'PLAN-OLD', drift_ids: ['D-1'],
+      revision: { code: 'sha256:' + 'b'.repeat(64), design: null },
+      implementation_tasks: [{ id: 'T-1', kind: 'implementation', subject: 'Fix the queue', description: '', write_scopes: [], depends_on: [] }] }],
+    reconciliation_execution: [{ execution: { plan_id: 'PLAN-OLD' }, pending: 0, claimed: 0, completed: 1, failed: 0, converged: true }] };
+  s.run('state.project=fixture;state.consistencyKind="requirement";state.consistencyState="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  assert.match(html, /PLAN-OLD/);
+  assert.match(html, /superseded revision/,
+    'drift ids are stable across revisions, so a plan on another revision must not read as the current result');
+});
+
 test('a drift that no plan claims says so instead of implying convergence', () => {
   const s = sandbox();
   s.context.fixture = { ...fixture(), reconciliation: [] };

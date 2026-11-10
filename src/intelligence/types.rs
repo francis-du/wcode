@@ -893,6 +893,10 @@ pub struct ProjectReconciliationPlanView {
     pub id: String,
     pub drift_ids: Vec<String>,
     pub implementation_tasks: Vec<crate::reconcile::ReconciliationTask>,
+    // The revision the plan's verification is bound to. A plan bound to another
+    // revision is history, not the current input, even when its drift ids still
+    // match a finding that was re-derived later.
+    pub revision: Option<crate::evidence::Revision>,
 }
 
 #[derive(Clone, Debug, Serialize)]

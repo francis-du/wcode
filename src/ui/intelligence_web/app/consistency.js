@@ -64,7 +64,14 @@ const consistencyRows = () => {
           const detail = matched
             ? `${matched.pending} ${t("pending")} · ${matched.completed} ${t("completed")} · ${matched.failed} ${t("failed")} · ${matched.converged ? t("converged") : t("not converged")}`
             : unit(tasks.length, "task", "tasks", "个任务");
-          return `${plan.id} (${detail})`;
+          // Drift ids are stable across revisions, so a plan bound to another
+          // revision can still claim a current finding. Say so instead of
+          // presenting its counts as the current input's result.
+          const current = state.project?.repository_revision;
+          const stale = plan.revision != null && current != null
+            && (plan.revision.code !== current.code
+              || (plan.revision.design ?? null) !== (current.design ?? null));
+          return `${plan.id}${stale ? ` [${t("superseded revision")}]` : ""} (${detail})`;
         });
     rows.push({
       id: requirement.id,
