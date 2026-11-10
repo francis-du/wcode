@@ -455,6 +455,21 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
 }
 
 #[test]
+fn repeating_identical_workspace_feedback_is_a_new_observation() {
+    let mut ui = DashboardState::default();
+    ui.set_workspace_message(Some("authorized".into()));
+    let first = ui.workspace_message_seq;
+    ui.set_workspace_message(Some("authorized".into()));
+    assert!(
+        ui.workspace_message_seq > first,
+        "repeating the same action must still refresh the feedback deadline"
+    );
+    ui.set_workspace_message(None);
+    assert!(ui.workspace_message.is_none());
+    assert_ne!(ui.workspace_message_seq, first);
+}
+
+#[test]
 fn a_checkpoint_that_never_compared_reports_no_comparison_and_no_call() {
     let monitor = TaskMonitor::new(["web".to_owned()]);
     monitor.record_jev_decision(

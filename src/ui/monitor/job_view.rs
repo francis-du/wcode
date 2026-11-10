@@ -160,7 +160,9 @@ pub(super) fn handle_command_job_key(
         return false;
     };
     let Some(observation) = ui.command_job.snapshot.as_ref() else {
-        ui.workspace_message = Some("Job state unknown; refresh before requesting stop".into());
+        ui.set_workspace_message(Some(
+            "Job state unknown; refresh before requesting stop".into(),
+        ));
         return true;
     };
     let exact = task.command_job_id.as_ref() == Some(&observation.job_id)
@@ -175,17 +177,21 @@ pub(super) fn handle_command_job_key(
         || observation.origin != MonitorJobOrigin::Ui
         || !observation.can_cancel
     {
-        ui.workspace_message =
-            Some("This task is observation-only; stop is restricted to an owned UI job".into());
+        ui.set_workspace_message(Some(
+            "This task is observation-only; stop is restricted to an owned UI job".into(),
+        ));
         return true;
     }
     let Some(access) = monitor.job_access() else {
-        ui.workspace_message = Some("Job control unavailable; stop was not requested".into());
+        ui.set_workspace_message(Some(
+            "Job control unavailable; stop was not requested".into(),
+        ));
         return true;
     };
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-        ui.workspace_message =
-            Some("Job control runtime unavailable; stop was not requested".into());
+        ui.set_workspace_message(Some(
+            "Job control runtime unavailable; stop was not requested".into(),
+        ));
         return true;
     };
     let workspace = observation.workspace.clone();
@@ -193,8 +199,9 @@ pub(super) fn handle_command_job_key(
     let (sender, receiver) = std::sync::mpsc::channel();
     ui.command_job.pending = Some(receiver);
     ui.command_job.requested_at = Some(Instant::now());
-    ui.workspace_message =
-        Some("Stop requested for the owned UI job; awaiting runtime confirmation".into());
+    ui.set_workspace_message(Some(
+        "Stop requested for the owned UI job; awaiting runtime confirmation".into(),
+    ));
     runtime.spawn_blocking(move || {
         let result = access
             .cancel(&workspace, &job_id)

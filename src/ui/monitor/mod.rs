@@ -512,6 +512,7 @@ struct DashboardState {
     command_offset: usize,
     workspace_input: Option<String>,
     workspace_message: Option<String>,
+    workspace_message_seq: u64,
     full_access_confirm: bool,
     authorization_focus: usize,
     authorization_scroll: usize,
@@ -587,6 +588,14 @@ impl DashboardState {
             self.workspace_offset = self.workspace_focus + 1 - visible;
         }
         self.workspace_offset = self.workspace_offset.min(total.saturating_sub(visible));
+    }
+
+    /// Set the operator feedback message and count it as a new observation.
+    /// Repeating an identical action is still a new piece of feedback, so the
+    /// message cannot be compared by text alone to decide whether to extend it.
+    fn set_workspace_message(&mut self, message: Option<String>) {
+        self.workspace_message_seq = self.workspace_message_seq.wrapping_add(1);
+        self.workspace_message = message;
     }
 
     /// Drop the console selection with the workspace it belonged to. A scroll

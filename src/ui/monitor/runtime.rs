@@ -141,14 +141,14 @@ pub(super) fn intelligence_url_for_workspace(base: &str, workspace: &str) -> Str
 fn open_dashboard_url(ui: &mut DashboardState, url: &str) -> bool {
     match open_external_url(url) {
         Ok(()) => {
-            ui.workspace_message = None;
+            ui.set_workspace_message(None);
             true
         }
         Err(error) => {
-            ui.workspace_message = Some(format!(
+            ui.set_workspace_message(Some(format!(
                 "{}: {error}",
                 ui.language.tr("unable to open link")
-            ));
+            )));
             false
         }
     }
@@ -166,7 +166,7 @@ pub(super) fn run_dashboard(
         intelligence_open: true,
         ..DashboardState::default()
     };
-    let mut status_snapshot: Option<String> = None;
+    let mut status_snapshot_seq: u64 = 0;
     let mut status_deadline: Option<Instant> = None;
     // Compact fingerprint (avoids >12-field tuple PartialEq limits).
     let mut last_draw_key: Option<(u64, u64, Option<String>)> = None;
@@ -185,16 +185,16 @@ pub(super) fn run_dashboard(
             break;
         }
 
-        if ui.workspace_message != status_snapshot {
-            status_snapshot = ui.workspace_message.clone();
+        if ui.workspace_message_seq != status_snapshot_seq {
+            status_snapshot_seq = ui.workspace_message_seq;
             status_deadline = ui
                 .workspace_message
                 .as_ref()
                 .map(|_| Instant::now() + STATUS_MESSAGE_TTL);
         }
         if status_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            ui.workspace_message = None;
-            status_snapshot = None;
+            ui.set_workspace_message(None);
+            status_snapshot_seq = ui.workspace_message_seq;
             status_deadline = None;
         }
 
@@ -202,19 +202,19 @@ pub(super) fn run_dashboard(
         let area = Rect::new(0, 0, size.width, size.height);
         if ui.full_access_confirm && !full_access_overlay_visible(area) {
             ui.full_access_confirm = false;
-            ui.workspace_message = Some(
+            ui.set_workspace_message(Some(
                 ui.language
                     .tr("full access dialog requires a larger terminal")
                     .to_owned(),
-            );
+            ));
         }
         if ui.workspace_input.is_some() && !workspace_input_overlay_visible(area) {
             ui.workspace_input = None;
-            ui.workspace_message = Some(
+            ui.set_workspace_message(Some(
                 ui.language
                     .tr("workspace input requires a larger terminal")
                     .to_owned(),
-            );
+            ));
         }
         let snapshot = monitor.snapshot();
         refresh_command_job(&mut ui, &monitor, &snapshot, &config);
@@ -246,11 +246,11 @@ pub(super) fn run_dashboard(
         if ui.commands_open && !commands_overlay_visible(area) {
             ui.commands_open = false;
             ui.command_offset = 0;
-            ui.workspace_message = Some(
+            ui.set_workspace_message(Some(
                 ui.language
                     .tr("command view requires a larger terminal")
                     .to_owned(),
-            );
+            ));
         }
         if ui.commands_open {
             if let Some(workspace_id) = focused_workspace_id_from(&workspaces, ui.workspace_focus) {
@@ -325,11 +325,11 @@ pub(super) fn run_dashboard(
                                 match config.workspaces.grant_full_user_access() {
                                     Ok((id, root)) => {
                                         monitor.register_workspace(id.clone());
-                                        ui.workspace_message = Some(format!(
+                                        ui.set_workspace_message(Some(format!(
                                             "{} {id}: {}",
                                             ui.language.tr("full access granted"),
                                             root.display()
-                                        ));
+                                        )));
                                         let workspaces = ordered_workspaces(&config, &snapshot);
                                         if let Some(index) = workspaces
                                             .iter()
@@ -353,10 +353,10 @@ pub(super) fn run_dashboard(
                                         }
                                     }
                                     Err(error) => {
-                                        ui.workspace_message = Some(format!(
+                                        ui.set_workspace_message(Some(format!(
                                             "{}: {error}",
                                             ui.language.tr("full access failed")
-                                        ));
+                                        )));
                                     }
                                 }
                             }
@@ -379,17 +379,17 @@ pub(super) fn run_dashboard(
                             DashboardAction::SubmitInput => {
                                 let path = ui.workspace_input.take().unwrap_or_default();
                                 if path.trim().is_empty() {
-                                    ui.workspace_message = Some(
+                                    ui.set_workspace_message(Some(
                                         ui.language.tr("workspace path cannot be empty").to_owned(),
-                                    );
+                                    ));
                                 } else {
                                     match config.workspaces.add_workspace(path.trim()) {
                                         Ok((id, root)) => {
                                             monitor.register_workspace(id.clone());
-                                            ui.workspace_message = Some(format!(
+                                            ui.set_workspace_message(Some(format!(
                                                 "authorized workspace {id}: {}",
                                                 root.display()
-                                            ));
+                                            )));
                                             let workspaces = ordered_workspaces(&config, &snapshot);
                                             let count = workspaces.len();
                                             let visible = workspace_column_count(
@@ -437,7 +437,7 @@ pub(super) fn run_dashboard(
                             ui.help_open = false;
                             ui.intelligence_open = false;
                             ui.commands_open = false;
-                            ui.workspace_message = None;
+                            ui.set_workspace_message(None);
                         }
                         DashboardAction::Help => {
                             ui.help_open = !ui.help_open;
@@ -470,13 +470,13 @@ pub(super) fn run_dashboard(
                             } else if commands_overlay_visible(area) {
                                 ui.commands_open = true;
                                 ui.command_offset = 0;
-                                ui.workspace_message = None;
+                                ui.set_workspace_message(None);
                             } else {
-                                ui.workspace_message = Some(
+                                ui.set_workspace_message(Some(
                                     ui.language
                                         .tr("command view requires a larger terminal")
                                         .to_owned(),
-                                );
+                                ));
                             }
                             ui.help_open = false;
                             ui.intelligence_open = false;
@@ -489,26 +489,26 @@ pub(super) fn run_dashboard(
                                 ui.workspace_message =
                                     Some(ui.language.tr("full access already enabled").to_owned());
                             } else if !full_access_overlay_visible(area) {
-                                ui.workspace_message = Some(
+                                ui.set_workspace_message(Some(
                                     ui.language
                                         .tr("full access dialog requires a larger terminal")
                                         .to_owned(),
-                                );
+                                ));
                             } else {
                                 ui.full_access_confirm = true;
-                                ui.workspace_message = None;
+                                ui.set_workspace_message(None);
                             }
                         }
                         DashboardAction::Language => {
                             ui.language = ui.language.toggle();
                             if ui.help_open || ui.intelligence_open {
-                                ui.workspace_message = None;
+                                ui.set_workspace_message(None);
                             } else {
-                                ui.workspace_message = Some(format!(
+                                ui.set_workspace_message(Some(format!(
                                     "{}: {}",
                                     ui.language.tr("LANGUAGE"),
                                     ui.language.name()
-                                ));
+                                )));
                             }
                         }
                         DashboardAction::Setup => {
@@ -563,20 +563,20 @@ pub(super) fn run_dashboard(
                                 .map(|(_, exact_only)| *exact_only)
                                 .unwrap_or(false)
                             {
-                                ui.workspace_message = Some(
+                                ui.set_workspace_message(Some(
                                     if ui.language == UiLanguage::ZhCn {
                                         "删除与人工决定需要精确批准"
                                     } else {
                                         "Delete and human decisions require exact approval"
                                     }
                                     .to_owned(),
-                                );
+                                ));
                             } else {
                                 let workspace_id =
                                     request_target.map(|(workspace, _)| workspace).or_else(|| {
                                         focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                                     });
-                                ui.workspace_message = Some(match workspace_id {
+                                ui.set_workspace_message(Some(match workspace_id {
                                     Some(workspace_id) => match config
                                         .workspaces
                                         .all_commands_authorized(Some(&workspace_id))
@@ -602,7 +602,7 @@ pub(super) fn run_dashboard(
                                         },
                                     },
                                     None => ui.language.tr("no workspace selected").to_owned(),
-                                });
+                                }));
                             }
                             ui.clamp_authorizations(pending_authorizations(&config).len());
                         }
@@ -619,13 +619,13 @@ pub(super) fn run_dashboard(
                             ui.commands_open = false;
                             if workspace_input_overlay_visible(area) {
                                 ui.workspace_input = Some(String::new());
-                                ui.workspace_message = None;
+                                ui.set_workspace_message(None);
                             } else {
-                                ui.workspace_message = Some(
+                                ui.set_workspace_message(Some(
                                     ui.language
                                         .tr("workspace input requires a larger terminal")
                                         .to_owned(),
-                                );
+                                ));
                             }
                         }
                         DashboardAction::ToggleCommandTrust => {
@@ -636,7 +636,7 @@ pub(super) fn run_dashboard(
                                     .workspaces
                                     .all_commands_authorized(Some(&workspace_id))
                                     .unwrap_or(false);
-                                ui.workspace_message = Some(
+                                ui.set_workspace_message(Some(
                                     match config
                                         .workspaces
                                         .set_all_commands_authorized(Some(&workspace_id), !enabled)
@@ -654,7 +654,7 @@ pub(super) fn run_dashboard(
                                             ui.language.tr("all command authorization failed")
                                         ),
                                     },
-                                );
+                                ));
                             }
                         }
                         DashboardAction::ShowAuthorization => {
@@ -662,14 +662,14 @@ pub(super) fn run_dashboard(
                             ui.intelligence_open = false;
                             ui.commands_open = false;
                             if authorization_overlay_visible(area) {
-                                ui.workspace_message = None;
+                                ui.set_workspace_message(None);
                                 ui.authorization_scroll = 0;
                             } else {
-                                ui.workspace_message = Some(
+                                ui.set_workspace_message(Some(
                                     ui.language
                                         .tr("authorization view requires a larger terminal")
                                         .to_owned(),
-                                );
+                                ));
                             }
                         }
                         DashboardAction::NoPendingAuthorization => {
@@ -686,7 +686,7 @@ pub(super) fn run_dashboard(
                             {
                                 let approved =
                                     config.workspaces.approve_authorization_session(&request.id);
-                                ui.workspace_message = Some(if approved {
+                                ui.set_workspace_message(Some(if approved {
                                     format!(
                                         "{} {} · {}",
                                         ui.language.tr("approved"),
@@ -699,7 +699,7 @@ pub(super) fn run_dashboard(
                                         request.id,
                                         ui.language.tr("authorization is no longer pending")
                                     )
-                                });
+                                }));
                                 ui.clamp_authorizations(pending_authorizations(&config).len());
                             }
                         }
@@ -708,7 +708,7 @@ pub(super) fn run_dashboard(
                                 ui.pending_authorizations.get(ui.authorization_focus)
                             {
                                 let denied = config.workspaces.deny_authorization(&request.id);
-                                ui.workspace_message = Some(if denied {
+                                ui.set_workspace_message(Some(if denied {
                                     format!("{} {}", ui.language.tr("denied"), request.id)
                                 } else {
                                     format!(
@@ -716,7 +716,7 @@ pub(super) fn run_dashboard(
                                         request.id,
                                         ui.language.tr("authorization is no longer pending")
                                     )
-                                });
+                                }));
                                 ui.clamp_authorizations(pending_authorizations(&config).len());
                             }
                         }
