@@ -141,6 +141,12 @@ async function main() {
     assert.match(html, /Timing unknown/, 'absent timings stay unknown instead of reading as zero');
     assert.doesNotMatch(html, /queued 0 ms|ran 0 ms/);
   });
+  await test('the report states that no structured failure location is retained', () => {
+    const s = prepared(); s.context.receipt = task({ report: report() });
+    const html = s.run('verificationReportHtml(receipt)');
+    assert.match(html, /no structured failure location/);
+    assert.match(html, /no line is inferred/);
+  });
   await test('malformed report and task identity never replaces the existing task or canonical decision', async () => {
     for (const mutate of [value => { value.task_id = 'other-task'; }, value => { value.report = report({ workspace: 'B' }); },
       value => { value.report = report({ checks: Array.from({ length: 65 }, () => report().checks[0]) }); },

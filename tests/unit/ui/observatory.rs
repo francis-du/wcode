@@ -581,7 +581,7 @@ fn acceptance_ui_keeps_canonical_state_required_axes_and_stale_scope_explicit() 
 #[test]
 fn verification_ui_runs_observes_cancels_and_refreshes_canonical_acceptance() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    for (file, expected) in [("verification.cjs", 16), ("verification_lifecycle.cjs", 8)] {
+    for (file, expected) in [("verification.cjs", 17), ("verification_lifecycle.cjs", 8)] {
         let output = std::process::Command::new("node")
             .arg(root.join("tests/unit/ui").join(file))
             .arg(root)
