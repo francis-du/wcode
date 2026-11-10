@@ -917,10 +917,14 @@ def verify_standalone(root: Path, target: Path, diagnostics: bool = False) -> No
                "-c", "core.autocrlf=false", "-c", "commit.gpgSign=false",
                "-c", "user.name=OSS standalone verification",
                "-c", "user.email=oss-standalone@invalid"]
-        run_stage("git_baseline_init", git + ["init"], standalone, env, 30)
-        run_stage("git_baseline_stage", git + ["add", "--force", "--all"], standalone, env, 30)
+        # A full-tree add over a freshly unpacked ~19 MB source tree can exceed
+        # 30 s on a Windows runner with real-time antivirus scanning, while the
+        # surrounding stages stayed fast. The bound stays generous but finite:
+        # a genuine hang still fails this stage.
+        run_stage("git_baseline_init", git + ["init"], standalone, env, 120)
+        run_stage("git_baseline_stage", git + ["add", "--force", "--all"], standalone, env, 120)
         run_stage("git_baseline_commit", git + ["commit", "--no-verify", "-m",
-                  "Temporary OSS workspace baseline"], standalone, env, 30)
+                  "Temporary OSS workspace baseline"], standalone, env, 120)
         run_stage("standalone_build", cached_cargo_args("build", target) + ["--workspace"],
                   standalone, env, 1800, diagnostics=diagnostics)
         run_stage("standalone_test", cached_cargo_args("test", target) + ["--workspace"],
