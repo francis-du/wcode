@@ -59,3 +59,40 @@ fn verification_blockers_stay_unknown_until_observed() {
     let zh = super::monitor_intelligence::blockers_label(None, UiLanguage::ZhCn);
     assert!(zh.contains("未知"), "{zh}");
 }
+
+#[test]
+fn graph_counts_stay_unknown_until_observed() {
+    assert_eq!(
+        super::monitor_intelligence::graph_label(Some(12), Some(30), UiLanguage::En),
+        "12 node(s) · 30 edge(s)"
+    );
+    let unknown = super::monitor_intelligence::graph_label(None, None, UiLanguage::En);
+    assert!(unknown.contains("unknown"), "{unknown}");
+    assert!(!unknown.contains('0'), "{unknown}");
+    let half = super::monitor_intelligence::graph_label(Some(12), None, UiLanguage::En);
+    assert!(half.contains("unknown"), "{half}");
+    let zh = super::monitor_intelligence::graph_label(None, None, UiLanguage::ZhCn);
+    assert!(zh.contains("未知"), "{zh}");
+    assert_eq!(
+        super::monitor_intelligence::graph_diff_label(
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            UiLanguage::En
+        ),
+        "node(s) +1/-2/~3 · edge(s) +4/-5/~6"
+    );
+    let diff_unknown = super::monitor_intelligence::graph_diff_label(
+        Some(1),
+        None,
+        Some(3),
+        Some(4),
+        Some(5),
+        Some(6),
+        UiLanguage::En,
+    );
+    assert!(diff_unknown.contains("unknown"), "{diff_unknown}");
+}

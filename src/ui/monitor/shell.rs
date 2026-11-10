@@ -315,8 +315,14 @@ fn render_engineering_pulse(
         stats.policy_errors,
         stats.policy_warnings,
         stats.graph_precision.as_deref().unwrap_or("syntax"),
-        stats.graph_nodes,
-        stats.graph_edges,
+        stats
+            .graph_nodes
+            .map(|count| count.to_string())
+            .unwrap_or_else(unknown),
+        stats
+            .graph_edges
+            .map(|count| count.to_string())
+            .unwrap_or_else(unknown),
         last_seen_text(stats.updated_at)
     );
     let drift_tone = if matches!(stats.risk_level.as_deref(), Some("critical" | "high")) {

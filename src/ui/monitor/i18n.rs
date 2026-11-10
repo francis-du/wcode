@@ -219,6 +219,8 @@ impl UiLanguage {
             (Self::ZhCn, "unknown evidence counts") => "证据计数未知",
             (Self::ZhCn, "blocker(s)") => "阻塞项",
             (Self::ZhCn, "unknown blocker count") => "阻塞数未知",
+            (Self::ZhCn, "node(s)") => "节点",
+            (Self::ZhCn, "edge(s)") => "条边",
             (Self::ZhCn, "close") => "关闭",
             (Self::ZhCn, "refresh") => "刷新",
             (Self::ZhCn, "Loading current Workspace data…") => "正在读取当前工作区数据…",

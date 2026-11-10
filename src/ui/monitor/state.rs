@@ -521,17 +521,17 @@ impl TaskMonitor {
                     .saturating_sub(stats.scope_mapped_files);
             }
             "software_graph" => {
-                stats.graph_nodes = value["node_count"].as_u64().unwrap_or(0);
-                stats.graph_edges = value["edge_count"].as_u64().unwrap_or(0);
+                stats.graph_nodes = value["node_count"].as_u64();
+                stats.graph_edges = value["edge_count"].as_u64();
                 stats.graph_precision = value["precision"].as_str().map(str::to_owned);
             }
             "graph_diff" => {
-                stats.graph_added_nodes = value["added_node_count"].as_u64().unwrap_or(0);
-                stats.graph_removed_nodes = value["removed_node_count"].as_u64().unwrap_or(0);
-                stats.graph_changed_nodes = value["changed_node_count"].as_u64().unwrap_or(0);
-                stats.graph_added_edges = value["added_edge_count"].as_u64().unwrap_or(0);
-                stats.graph_removed_edges = value["removed_edge_count"].as_u64().unwrap_or(0);
-                stats.graph_changed_edges = value["changed_edge_count"].as_u64().unwrap_or(0);
+                stats.graph_added_nodes = value["added_node_count"].as_u64();
+                stats.graph_removed_nodes = value["removed_node_count"].as_u64();
+                stats.graph_changed_nodes = value["changed_node_count"].as_u64();
+                stats.graph_added_edges = value["added_edge_count"].as_u64();
+                stats.graph_removed_edges = value["removed_edge_count"].as_u64();
+                stats.graph_changed_edges = value["changed_edge_count"].as_u64();
             }
             "traceability_status" => {
                 stats.implementation_coverage =

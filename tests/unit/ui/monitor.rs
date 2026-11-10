@@ -435,7 +435,7 @@ fn opening_intelligence_loads_the_focused_workspace_without_prior_mcp_calls() {
     let stats = &snapshot.intelligence["backend"];
     assert_eq!(stats.design_state.as_deref(), Some("uninitialized"));
     assert_eq!(stats.scope_source_files, 1);
-    assert!(stats.graph_nodes > 0);
+    assert!(stats.graph_nodes.unwrap_or(0) > 0);
     assert!(stats.updated_at.is_some());
 }
 

@@ -503,21 +503,21 @@ pub(super) fn render_intelligence_overlay(
                 intelligence_line(
                     language.tr("GRAPH"),
                     format!(
-                        "{} nodes · {} edges · {precision}",
-                        stats.graph_nodes, stats.graph_edges
+                        "{} · {precision}",
+                        graph_label(stats.graph_nodes, stats.graph_edges, language)
                     ),
                     LINK,
                 ),
                 intelligence_line(
                     language.tr("GRAPH Δ"),
-                    format!(
-                        "N +{}/-{}/~{} · E +{}/-{}/~{}",
+                    graph_diff_label(
                         stats.graph_added_nodes,
                         stats.graph_removed_nodes,
                         stats.graph_changed_nodes,
                         stats.graph_added_edges,
                         stats.graph_removed_edges,
-                        stats.graph_changed_edges
+                        stats.graph_changed_edges,
+                        language,
                     ),
                     SECONDARY,
                 ),
@@ -656,21 +656,21 @@ pub(super) fn render_intelligence_overlay(
         intelligence_line(
             language.tr("GRAPH"),
             format!(
-                "{} nodes · {} edges · {precision}",
-                stats.graph_nodes, stats.graph_edges
+                "{} · {precision}",
+                graph_label(stats.graph_nodes, stats.graph_edges, language)
             ),
             LINK,
         ),
         intelligence_line(
             language.tr("GRAPH Δ"),
-            format!(
-                "nodes +{}/-{}/~{} · edges +{}/-{}/~{}",
+            graph_diff_label(
                 stats.graph_added_nodes,
                 stats.graph_removed_nodes,
                 stats.graph_changed_nodes,
                 stats.graph_added_edges,
                 stats.graph_removed_edges,
-                stats.graph_changed_edges
+                stats.graph_changed_edges,
+                language,
             ),
             SECONDARY,
         ),
@@ -857,6 +857,46 @@ pub(super) fn blockers_label(count: Option<u64>, language: UiLanguage) -> String
     match count {
         Some(count) => format!("{count} {}", language.tr("blocker(s)")),
         None => language.tr("unknown blocker count").to_owned(),
+    }
+}
+
+// Graph counts travel as one group: the node and edge totals come from the same
+// snapshot, so a missing side means the graph was never observed, not that it is
+// empty.
+pub(super) fn graph_label(nodes: Option<u64>, edges: Option<u64>, language: UiLanguage) -> String {
+    match (nodes, edges) {
+        (Some(nodes), Some(edges)) => format!(
+            "{nodes} {} · {edges} {}",
+            language.tr("node(s)"),
+            language.tr("edge(s)")
+        ),
+        _ => language.tr("unknown").to_owned(),
+    }
+}
+
+pub(super) fn graph_diff_label(
+    added_nodes: Option<u64>,
+    removed_nodes: Option<u64>,
+    changed_nodes: Option<u64>,
+    added_edges: Option<u64>,
+    removed_edges: Option<u64>,
+    changed_edges: Option<u64>,
+    language: UiLanguage,
+) -> String {
+    match (
+        added_nodes,
+        removed_nodes,
+        changed_nodes,
+        added_edges,
+        removed_edges,
+        changed_edges,
+    ) {
+        (Some(an), Some(rn), Some(cn), Some(ae), Some(re), Some(ce)) => format!(
+            "{} +{an}/-{rn}/~{cn} · {} +{ae}/-{re}/~{ce}",
+            language.tr("node(s)"),
+            language.tr("edge(s)")
+        ),
+        _ => language.tr("unknown").to_owned(),
     }
 }
 
