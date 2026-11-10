@@ -217,6 +217,9 @@ const state = {
   // The requirement filter the current selection was made under. Changing the
   // filter re-selects the first visible item; switching views does not.
   selectedFilter: "all",
+  // Document scroll per main view. Hiding a panel clamps the document scroll,
+  // so a view switch is the one navigation that can lose the operator's place.
+  viewScroll: {},
   systemMapScale: 1,
   systemMapFit: true,
   systemMapFull: false,
@@ -273,6 +276,19 @@ const state = {
   commandPaletteIndex: 0,
   commandPaletteReturnFocus: null,
 };
+// Hiding a panel clamps the document scroll, so switching main views is the
+// one navigation that can silently lose the operator's place. Each view keeps
+// its own position; an explicit navigation or a history restore keeps its own.
+function switchWorkspaceTabView(previous, next, { scroll, fromHistory }) {
+  if (previous === next) return;
+  state.viewScroll[previous] = window.scrollY ?? document.documentElement?.scrollTop ?? 0;
+  state.workspaceTab = next;
+  if (!scroll && !fromHistory) {
+    const saved = state.viewScroll[next];
+    // Deferred so the incoming panel is laid out before the position is applied.
+    if (saved > 0) requestAnimationFrame(() => window.scrollTo?.(0, saved));
+  }
+}
 const t = (key) => translateKey(state.language, key);
 const localized = (en, zh) => state.language === "zh-CN" ? zh : en;
 const unit = (value, singular, plural, zh) =>

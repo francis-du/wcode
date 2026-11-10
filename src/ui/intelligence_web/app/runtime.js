@@ -160,7 +160,7 @@ function renderWorkspaceHero(tab) {
 }
 function activateWorkspaceTab(tab, { scroll = false, fromHistory = false } = {}) {
   const next = workspaceTabs.includes(tab) ? tab : "overview";
-  state.workspaceTab = next;
+  switchWorkspaceTabView(state.workspaceTab, next, { scroll, fromHistory });
   savePreference("wcode.ui.page", next);
   // The view is the restorable unit. Workspace switches go through their own
   // refresh, so a history entry only claims the workspace it was recorded in.
@@ -333,7 +333,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.accessRead = null;
   state.syncError = false; state.syncFailure = null;
   state.fitnessSnapshotFromCache = false;
-  state.project = null; state.selected = ""; state.selectedFilter = "all"; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.selectedEvidenceReference = ""; state.evidenceInspectorOpen = true;
+  state.project = null; state.selected = ""; state.selectedFilter = "all"; state.selectedComponent = ""; state.selectedSubsystem = ""; state.selectedEvidenceKey = ""; state.selectedEvidenceReference = ""; state.evidenceInspectorOpen = true; state.viewScroll = {};
   renderWorkspaceIdentity();
   state.codeGraphController?.abort(); state.codeGraphController = null;
   state.codeGraphSearchController?.abort(); state.codeGraphSearchController = null;

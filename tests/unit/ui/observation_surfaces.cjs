@@ -287,3 +287,24 @@ test('a change without retained diff counts stays unknown instead of a measured 
   const unknown = (html.match(/class="change-num unknown"/g) || []).length;
   assert.equal(unknown, 2, 'the binary change and the unknown deletion side each stay unknown');
 });
+
+test('switching main views keeps the place the operator left', () => {
+  const s = sandbox();
+  s.context.scrolled = [];
+  s.run('window.scrollTo=(x,y)=>scrolled.push([x,y]);document.documentElement.scrollTop=0;');
+  s.context.fixture = fixture();
+  s.run('state.current="A";state.project=fixture;activateWorkspaceTab("files");');
+  assert.equal(JSON.stringify(s.context.scrolled), '[]', 'the first activation does not scroll');
+  s.run('document.documentElement.scrollTop=420;activateWorkspaceTab("changes");');
+  assert.equal(JSON.stringify(s.context.scrolled), '[]', 'a view with no saved place is left alone');
+  s.run('activateWorkspaceTab("files");');
+  assert.equal(JSON.stringify(s.context.scrolled), '[[0,420]]', 'returning restores the saved place');
+  s.run('document.documentElement.scrollTop=80;activateWorkspaceTab("changes");');
+  assert.equal(JSON.stringify(s.context.scrolled), '[[0,420],[0,420]]',
+    'the place of the view being left is updated');
+  s.run('activateWorkspaceTab("files");');
+  assert.equal(JSON.stringify(s.context.scrolled), '[[0,420],[0,420],[0,80]]', 'the newest place wins');
+  s.run('document.documentElement.scrollTop=500;activateWorkspaceTab("changes");clearWorkspaceView();activateWorkspaceTab("files");');
+  assert.equal(JSON.stringify(s.context.scrolled), '[[0,420],[0,420],[0,80],[0,80]]',
+    'a workspace switch drops the old places');
+});
