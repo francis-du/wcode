@@ -317,7 +317,10 @@ fn render_engineering_pulse(
         } else {
             unknown()
         },
-        stats.graph_precision.as_deref().unwrap_or("syntax"),
+        stats
+            .graph_precision
+            .as_deref()
+            .unwrap_or_else(|| language.tr("unknown")),
         stats
             .graph_nodes
             .map(|count| count.to_string())
