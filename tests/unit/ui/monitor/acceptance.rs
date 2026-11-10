@@ -130,7 +130,7 @@ fn acceptance_default_is_unknown_despite_favorable_monitor_counts() {
         ConsoleTab::Acceptance
     );
     let stats = IntelligenceStats {
-        evidence_total: 100,
+        evidence_total: Some(100),
         verification_ready: Some(true),
         ..Default::default()
     };

@@ -528,7 +528,10 @@ pub(super) fn render_intelligence_overlay(
             Paragraph::new(vec![
                 intelligence_line(
                     language.tr("RISK"),
-                    format!("{risk} · {} drift finding(s)", stats.drift_findings),
+                    format!(
+                        "{risk} · {}",
+                        drift_findings_label(stats.drift_findings, language)
+                    ),
                     match risk {
                         "low" => SUCCESS,
                         "medium" | "moderate" => WARNING,
@@ -538,14 +541,20 @@ pub(super) fn render_intelligence_overlay(
                 ),
                 intelligence_line(
                     language.tr("EVIDENCE"),
-                    format!(
-                        "{} total · {} failed · {} disagreed",
-                        stats.evidence_total, stats.evidence_failed, stats.evidence_disagreed
+                    evidence_counts_label(
+                        stats.evidence_total,
+                        stats.evidence_failed,
+                        stats.evidence_disagreed,
+                        language,
                     ),
-                    if stats.evidence_failed > 0 || stats.evidence_disagreed > 0 {
+                    if stats.evidence_failed.unwrap_or(0) > 0
+                        || stats.evidence_disagreed.unwrap_or(0) > 0
+                    {
                         DANGER
-                    } else {
+                    } else if stats.updated_at.is_some() {
                         SUCCESS
+                    } else {
+                        TEXT_MUTED
                     },
                 ),
                 intelligence_line(
@@ -715,7 +724,10 @@ pub(super) fn render_intelligence_overlay(
         ),
         intelligence_line(
             language.tr("RISK"),
-            format!("{risk} · {} drift finding(s)", stats.drift_findings),
+            format!(
+                "{risk} · {}",
+                drift_findings_label(stats.drift_findings, language)
+            ),
             match risk {
                 "low" => SUCCESS,
                 "medium" | "moderate" => WARNING,
@@ -725,14 +737,18 @@ pub(super) fn render_intelligence_overlay(
         ),
         intelligence_line(
             language.tr("EVIDENCE"),
-            format!(
-                "{} total · {} failed · {} disagreed",
-                stats.evidence_total, stats.evidence_failed, stats.evidence_disagreed
+            evidence_counts_label(
+                stats.evidence_total,
+                stats.evidence_failed,
+                stats.evidence_disagreed,
+                language,
             ),
-            if stats.evidence_failed > 0 || stats.evidence_disagreed > 0 {
+            if stats.evidence_failed.unwrap_or(0) > 0 || stats.evidence_disagreed.unwrap_or(0) > 0 {
                 DANGER
-            } else {
+            } else if stats.updated_at.is_some() {
                 SUCCESS
+            } else {
+                TEXT_MUTED
             },
         ),
         intelligence_line(
@@ -796,6 +812,32 @@ fn intelligence_refresh_line(
         language.tr("R refresh · risk checks remain authorization-bound"),
         Style::default().fg(TEXT_DIM),
     ))
+}
+
+// Absent counts are unknown, not measured zeros, and unknown state never takes
+// success styling.
+pub(super) fn drift_findings_label(count: Option<u64>, language: UiLanguage) -> String {
+    match count {
+        Some(count) => format!("{count} {}", language.tr("drift finding(s)")),
+        None => language.tr("unknown drift finding count").to_owned(),
+    }
+}
+
+pub(super) fn evidence_counts_label(
+    total: Option<u64>,
+    failed: Option<u64>,
+    disagreed: Option<u64>,
+    language: UiLanguage,
+) -> String {
+    match (total, failed, disagreed) {
+        (Some(total), Some(failed), Some(disagreed)) => format!(
+            "{total} {} · {failed} {} · {disagreed} {}",
+            language.tr("total"),
+            language.tr("failed"),
+            language.tr("disagreed")
+        ),
+        _ => language.tr("unknown evidence counts").to_owned(),
+    }
 }
 
 pub(super) fn pending_tasks_label(count: Option<u64>, language: UiLanguage) -> String {

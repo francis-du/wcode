@@ -276,9 +276,15 @@ fn attention_signals(
         // The shared project projection owns proof/trace/drift findings. Scalar
         // fallback is only used before that bounded snapshot becomes available.
         if stats.project_attention.is_none() {
-            if stats.evidence_failed > 0 || stats.evidence_disagreed > 0 {
-                local("high", "Proof needs attention", format!("{} failed · {} disagreed evidence item(s).", stats.evidence_failed, stats.evidence_disagreed),
-                    "evidence_status shows producer and revision; review_changes then verify_project refreshes checks.", ConsoleTab::Summary, None, false);
+            // Unobserved evidence is not a clean slate: only report failures once
+            // the counts exist, so the fallback never reads as a measured zero.
+            if let (Some(failed), Some(disagreed)) =
+                (stats.evidence_failed, stats.evidence_disagreed)
+            {
+                if failed > 0 || disagreed > 0 {
+                    local("high", "Proof needs attention", format!("{failed} failed · {disagreed} disagreed evidence item(s)."),
+                        "evidence_status shows producer and revision; review_changes then verify_project refreshes checks.", ConsoleTab::Summary, None, false);
+                }
             }
             if stats.verification_ready == Some(false) {
                 local(
@@ -308,13 +314,12 @@ fn attention_signals(
                     false,
                 );
             }
-            if stats.drift_findings > 0 {
+            if let Some(findings) = stats.drift_findings.filter(|findings| *findings > 0) {
                 local(
                     "medium",
                     "Design drift",
                     format!(
-                        "{} observed finding(s) · risk {}.",
-                        stats.drift_findings,
+                        "{findings} observed finding(s) · risk {}.",
                         stats.risk_level.as_deref().unwrap_or("unassessed")
                     ),
                     "drift_status and risk_status expose affected subjects.",

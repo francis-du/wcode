@@ -286,10 +286,14 @@ fn render_engineering_pulse(
             .map(|value| format!("{value}%"))
             .unwrap_or_else(|| "—".to_owned())
     );
+    let unknown = || "?".to_owned();
     let drift = format!(
         "{} · {} findings",
         stats.risk_level.as_deref().unwrap_or("unassessed"),
-        stats.drift_findings
+        stats
+            .drift_findings
+            .map(|count| count.to_string())
+            .unwrap_or_else(unknown)
     );
     let proof = format!(
         "{} · {} failed · {} disagreed",
@@ -297,8 +301,14 @@ fn render_engineering_pulse(
             .verification_ready
             .map(|ready| if ready { "ready" } else { "blocked" })
             .unwrap_or("unplanned"),
-        stats.evidence_failed,
-        stats.evidence_disagreed
+        stats
+            .evidence_failed
+            .map(|count| count.to_string())
+            .unwrap_or_else(unknown),
+        stats
+            .evidence_disagreed
+            .map(|count| count.to_string())
+            .unwrap_or_else(unknown)
     );
     let model = format!(
         "policy {}/{} · {} · {}n/{}e · {}",
@@ -311,14 +321,16 @@ fn render_engineering_pulse(
     );
     let drift_tone = if matches!(stats.risk_level.as_deref(), Some("critical" | "high")) {
         DANGER
-    } else if stats.drift_findings > 0 {
+    } else if stats.drift_findings.unwrap_or(0) > 0 {
         WARNING
-    } else {
+    } else if stats.risk_level.is_some() && stats.drift_findings.is_some() {
         SUCCESS
+    } else {
+        TEXT_MUTED
     };
-    let proof_tone = if stats.evidence_failed > 0 {
+    let proof_tone = if stats.evidence_failed.unwrap_or(0) > 0 {
         DANGER
-    } else if stats.evidence_disagreed > 0 || stats.verification_ready == Some(false) {
+    } else if stats.evidence_disagreed.unwrap_or(0) > 0 || stats.verification_ready == Some(false) {
         WARNING
     } else if stats.verification_ready == Some(true) {
         SUCCESS

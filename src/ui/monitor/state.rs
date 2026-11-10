@@ -624,10 +624,12 @@ impl TaskMonitor {
                     .count() as u64;
             }
             "drift_status" => {
-                stats.drift_findings = value["implementation_drift"]
-                    .as_u64()
-                    .unwrap_or(0)
-                    .saturating_add(value["design_drift"].as_u64().unwrap_or(0));
+                stats.drift_findings = Some(
+                    value["implementation_drift"]
+                        .as_u64()
+                        .unwrap_or(0)
+                        .saturating_add(value["design_drift"].as_u64().unwrap_or(0)),
+                );
             }
             "worklist_status" | "worklist_update" | "worklist_claim" | "worklist_submit" => {
                 let public_status = value.get("worklist").unwrap_or(value);
@@ -645,13 +647,12 @@ impl TaskMonitor {
                 stats.risk_level = value["level"].as_str().map(str::to_owned);
                 stats.drift_findings = value["drift"]["findings"]
                     .as_array()
-                    .map(|findings| findings.len() as u64)
-                    .unwrap_or(stats.drift_findings);
+                    .map(|findings| findings.len() as u64);
             }
             "evidence_status" => {
-                stats.evidence_total = value["total"].as_u64().unwrap_or(0);
-                stats.evidence_failed = value["failed"].as_u64().unwrap_or(0);
-                stats.evidence_disagreed = value["disagreed"].as_u64().unwrap_or(0);
+                stats.evidence_total = value["total"].as_u64();
+                stats.evidence_failed = value["failed"].as_u64();
+                stats.evidence_disagreed = value["disagreed"].as_u64();
             }
             "verification_status" => {
                 stats.verification_ready = value["ready"].as_bool();
