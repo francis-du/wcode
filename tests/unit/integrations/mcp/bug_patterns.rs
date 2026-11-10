@@ -101,6 +101,21 @@ type Response struct { BatchList []int }
             .is_some_and(|patterns| !patterns.is_empty())
     }));
 
+    // The preset's node kinds never contain comment nodes, so the flag cannot
+    // change the matches, but the response must report what was requested
+    // rather than silently answering false.
+    let with_comments = call_tool(
+        &state,
+        json!({"name":"scan_patterns","arguments":{"preset":"go_common_bugs","include_comments":true}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(with_comments["isError"], false);
+    assert_eq!(
+        with_comments["structuredContent"]["include_comments"], true,
+        "the preset path must echo the requested comment policy"
+    );
+
     let mismatch_only = call_tool(
         &state,
         json!({"name":"scan_patterns","arguments":{"pattern":"index_mismatch"}}),

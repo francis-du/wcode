@@ -401,6 +401,16 @@ pub(super) async fn call(
                 } else {
                     bounded_usize_arg_range(args, "max_results", 500, 1, 2_000)?
                 };
+                // The preset's node kinds never contain comment nodes, so this
+                // flag cannot change which matches come back here. It is still
+                // read so the response reports what was actually requested
+                // instead of silently answering false.
+                let include_comments = match args.get("include_comments") {
+                    None => false,
+                    Some(value) => value
+                        .as_bool()
+                        .ok_or_else(|| "include_comments must be a boolean".to_owned())?,
+                };
                 let harness = state.harness.clone();
                 let request = crate::code_index::SyntaxSearchRequest {
                     path,
@@ -411,7 +421,7 @@ pub(super) async fn call(
                         "call_expression".to_owned(),
                     ],
                     text_regex: None,
-                    include_comments: false,
+                    include_comments,
                     bug_patterns: bug_patterns.clone(),
                     max_files: 50_000,
                     max_results,
