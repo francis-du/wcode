@@ -288,8 +288,8 @@ fn design_consistency_matrix_combines_design_and_observed_state() {
         String::from_utf8_lossy(&output.stderr)
     );
     for summary in [
-        "# tests 12",
-        "# pass 12",
+        "# tests 13",
+        "# pass 13",
         "# fail 0",
         "# cancelled 0",
         "# skipped 0",

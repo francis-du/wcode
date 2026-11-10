@@ -28,7 +28,13 @@ const driftFindingTarget = finding => {
   const project = state.project || {};
   if ((project.requirements || []).some(item => item.id === subject)) return `object:requirement:${subject}`;
   if ((architectureData().components || []).some(item => item.id === subject)) return `object:component:${subject}`;
-  if (subject.startsWith("implementation:")) return "changesSection";
+  // An implementation drift names the file whose Actual State moved. Land on that
+  // file's bounded change instead of the unfocused changes section, so the
+  // finding's own evidence is the first thing the operator sees.
+  if (subject.startsWith("implementation:")) {
+    const path = subject.slice("implementation:".length);
+    return path ? `object:change:${path}` : "changesSection";
+  }
   return "diagnosticsSection";
 };
 

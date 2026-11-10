@@ -147,6 +147,26 @@ test('the drift queue separates the three drift kinds with their evidence fields
   assert.doesNotMatch(filtered, /D-RUNTIME/);
 });
 
+test('an implementation drift opens the named change instead of the unfocused section', () => {
+  const s = sandbox();
+  s.context.__openedChanges = [];
+  s.run('openChangeInspection=(path,layer,fresh)=>__openedChanges.push({path,layer,fresh});');
+  s.context.fixture = { ...fixture(),
+    risk: { drift: { findings: [
+      { id: 'D-IMPL', kind: 'implementation_drift', risk_level: 'high',
+        subject: 'implementation:src/queue.rs', message: 'Actual state moved without a design change',
+        affected_requirements: ['REQ-A'], paths: ['src/queue.rs'], deviation: null }] } } };
+  s.run('state.project=fixture;state.consistencyDriftKind="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  assert.match(html, /data-consistency-drift-row="object:change:src\/queue\.rs"/,
+    'the drift queue must name the changed file, not a bare section');
+  s.run('executeCommand("object:change:src/queue.rs")');
+  assert.equal(s.context.__openedChanges.length, 1, 'the command must open that file\'s bounded change snapshot');
+  assert.equal(s.context.__openedChanges[0].path, 'src/queue.rs');
+  assert.equal(s.context.__openedChanges[0].layer, 'working');
+  assert.equal(s.context.__openedChanges[0].fresh, true);
+});
+
 test('consistency rows keep a visible keyboard path', () => {
   const s = sandbox();
   s.context.fixture = fixture();

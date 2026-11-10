@@ -94,6 +94,14 @@ const paletteExecute = (command) => {
     void openRepositoryFile(command.slice("object:file:".length));
     return true;
   }
+  if (command.startsWith("object:change:")) {
+    const path = command.slice("object:change:".length);
+    if (!path) return true;
+    revealSection("changesSection");
+    void openChangeInspection(path, "working", true);
+    requestAnimationFrame(() => focusSelectedChangePath(path));
+    return true;
+  }
   if (command.startsWith("object:signal:")) {
     const signal = paletteSignalActions[command];
     if (signal) void runSummaryAction(signal);
