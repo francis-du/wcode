@@ -71,13 +71,18 @@ test('a requirement row links the drift to the convergence plan that claims it',
   const s = sandbox();
   s.context.fixture = { ...fixture(),
     reconciliation: [{ id: 'PLAN-1', drift_ids: ['D-1'], implementation_tasks: [
-      { id: 'T-1', kind: 'implementation', subject: 'Fix the queue', description: '', write_scopes: [], depends_on: [] }] }],
-    reconciliation_execution: { execution: { plan_id: 'PLAN-1' },
-      pending: 1, claimed: 0, completed: 0, failed: 0, converged: false } };
+      { id: 'T-1', kind: 'implementation', subject: 'Fix the queue', description: '', write_scopes: [], depends_on: [] }] },
+      { id: 'PLAN-2', drift_ids: ['D-1'], implementation_tasks: [
+        { id: 'T-2', kind: 'implementation', subject: 'Second lane', description: '', write_scopes: [], depends_on: [] },
+        { id: 'T-3', kind: 'implementation', subject: 'Third lane', description: '', write_scopes: [], depends_on: [] }] }],
+    reconciliation_execution: [{ execution: { plan_id: 'PLAN-1' },
+      pending: 1, claimed: 0, completed: 0, failed: 0, converged: false }] };
   s.run('state.project=fixture;state.consistencyKind="requirement";state.consistencyState="all";renderConsistencyMatrix();');
   const html = s.node('#consistencySection').innerHTML;
   assert.match(html, /PLAN-1/);
   assert.match(html, /1 pending/);
+  assert.match(html, /PLAN-2/);
+  assert.match(html, /2 tasks/, 'a plan without recorded execution state falls back to its declared task count');
   assert.doesNotMatch(html, /no convergence plan references this drift/);
 });
 

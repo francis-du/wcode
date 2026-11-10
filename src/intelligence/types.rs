@@ -875,6 +875,7 @@ pub struct ProjectObservatory {
     pub root: String,
     pub design: ProjectDesignObservatory,
     pub reconciliation: Vec<ProjectReconciliationPlanView>,
+    pub reconciliation_execution: Vec<crate::reconcile::ReconciliationExecutionStatus>,
     pub repository_revision: crate::evidence::Revision,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acceptance: Option<crate::verification::acceptance::ChangeAcceptanceRecord>,

@@ -184,4 +184,8 @@ async fn project_payload_carries_design_review_truncation_and_runtime_identity()
         value["reconciliation"].is_array(),
         "the consistency matrix must be able to tell an unclaimed drift from an unknown plan list: {value}"
     );
+    assert!(
+        value["reconciliation_execution"].is_array(),
+        "the matrix must be able to show live plan execution per plan: {value}"
+    );
 }

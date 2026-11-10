@@ -208,13 +208,48 @@ fn observatory_reports_the_reconciliation_plan_that_claims_drift() {
         "[package]\nname = \"proof-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
+    // A requirement whose only owner does not exist leaves the trace partial,
+    // which is the drift a reconciliation plan has to claim.
+    fs::write(
+        root.path().join(".wcode/design/requirements.yaml"),
+        r#"- schema_version: 1
+  id: REQ-DRIFT
+  title: Drifted requirement
+  intent: Exercise an incomplete implementation trace.
+  priority: high
+  implemented_by:
+    - component:missing
+  acceptance:
+    - AC-CHECK
+  constraints: []
+  risk: {}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join(".wcode/design/components.yaml"),
+        r#"- schema_version: 1
+  id: component:feature
+  name: Feature entry
+  responsibilities:
+    - expose the feature entry point
+  depends_on: []
+  constraints: []
+  implementation: []
+"#,
+    )
+    .unwrap();
     let mut review = clean_review();
     review.risk_level = "high".into();
     let plan = harness
         .reconciliation_plan("proof", &workspace, &review)
         .unwrap();
+    assert!(
+        !plan.drift_ids.is_empty(),
+        "the fixture must produce a drift finding for the plan to claim"
+    );
     let project = harness
-        .project_observatory("proof", &workspace, None)
+        .project_observatory("proof", &workspace, Some(&review))
         .unwrap();
     let view = project
         .reconciliation
@@ -227,6 +262,12 @@ fn observatory_reports_the_reconciliation_plan_that_claims_drift() {
         plan.implementation_tasks.len()
     );
     assert_ne!(view.implementation_tasks.len(), 0);
+    let execution = project
+        .reconciliation_execution
+        .iter()
+        .find(|status| status.execution.plan_id == plan.id)
+        .expect("a plan that claims a current drift must carry its live execution state");
+    assert_eq!(execution.execution.plan_id, plan.id);
 }
 
 #[test]

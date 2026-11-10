@@ -60,8 +60,7 @@ const consistencyRows = () => {
       : !plans.length ? [t("no convergence plan references this drift")]
         : plans.map(plan => {
           const tasks = plan.implementation_tasks || [];
-          const execution = project.reconciliation_execution;
-          const matched = execution?.execution?.plan_id === plan.id ? execution : null;
+          const matched = (project.reconciliation_execution || []).find(item => item?.execution?.plan_id === plan.id) || null;
           const detail = matched
             ? `${matched.pending} ${t("pending")} · ${matched.completed} ${t("completed")} · ${matched.failed} ${t("failed")} · ${matched.converged ? t("converged") : t("not converged")}`
             : unit(tasks.length, "task", "tasks", "个任务");

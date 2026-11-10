@@ -43,6 +43,7 @@ pub(crate) struct ObservatoryInput<'a> {
     pub reconciliation_plans: usize,
     pub latest_reconciliation_plan: Option<String>,
     pub reconciliation: Vec<crate::reconcile::ReconciliationPlan>,
+    pub reconciliation_execution: Vec<crate::reconcile::ReconciliationExecutionStatus>,
     pub change_ranges: Option<ChangedRangesSnapshot>,
 }
 
@@ -173,6 +174,7 @@ pub(crate) fn build_project_observatory(input: ObservatoryInput<'_>) -> ProjectO
                 },
             )
             .collect(),
+        reconciliation_execution: input.reconciliation_execution.clone(),
         repository_revision: input.repository_revision,
         acceptance: None,
         project: state.project.as_ref().map(|project| project.name.clone()),

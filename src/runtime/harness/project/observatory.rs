@@ -434,6 +434,25 @@ impl ToolHarness {
             None
         };
 
+        // Only plans that claim a current drift finding can be the answer the
+        // consistency matrix is looking for, so execution state is collected
+        // for that bounded set instead of every retained plan.
+        let drift_ids = risk
+            .as_ref()
+            .map(|risk| {
+                risk.drift
+                    .findings
+                    .iter()
+                    .map(|finding| finding.id.clone())
+                    .collect::<std::collections::BTreeSet<_>>()
+            })
+            .unwrap_or_default();
+        let reconciliation_execution = reconciliation
+            .iter()
+            .filter(|plan| plan.drift_ids.iter().any(|id| drift_ids.contains(id)))
+            .map(|plan| self.reconciliation_execution_status(&workspace_id, workspace, &plan.id))
+            .filter_map(|status| status.ok())
+            .collect::<Vec<_>>();
         let mut snapshot = build_project_observatory(ObservatoryInput {
             workspace: workspace_id,
             root: workspace.root().display().to_string(),
@@ -455,6 +474,7 @@ impl ToolHarness {
             reconciliation_plans: reconciliation.len(),
             latest_reconciliation_plan,
             reconciliation: reconciliation.clone(),
+            reconciliation_execution,
             change_ranges,
         });
         snapshot.attention =
