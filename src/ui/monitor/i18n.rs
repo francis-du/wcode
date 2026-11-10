@@ -209,6 +209,8 @@ impl UiLanguage {
             (Self::ZhCn, "unknown") => "未知",
             (Self::ZhCn, "converged") => "已收敛",
             (Self::ZhCn, "active") => "进行中",
+            (Self::ZhCn, "pending task(s)") => "待处理任务",
+            (Self::ZhCn, "pending count unknown") => "待处理数未知",
             (Self::ZhCn, "close") => "关闭",
             (Self::ZhCn, "refresh") => "刷新",
             (Self::ZhCn, "Loading current Workspace data…") => "正在读取当前工作区数据…",

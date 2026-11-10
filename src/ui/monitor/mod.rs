@@ -296,7 +296,7 @@ struct IntelligenceStats {
     verification_ready: Option<bool>,
     verification_blockers: u64,
     reconciliation_converged: Option<bool>,
-    reconciliation_pending: u64,
+    reconciliation_pending: Option<u64>,
     updated_at: Option<Instant>,
     refreshing: bool,
     refresh_error: Option<String>,

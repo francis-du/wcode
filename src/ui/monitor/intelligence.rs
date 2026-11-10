@@ -575,8 +575,8 @@ pub(super) fn render_intelligence_overlay(
                 intelligence_line(
                     language.tr("RECONCILE"),
                     format!(
-                        "{reconciliation} · {} pending task(s)",
-                        stats.reconciliation_pending
+                        "{reconciliation} · {}",
+                        pending_tasks_label(stats.reconciliation_pending, language)
                     ),
                     if stats.reconciliation_converged == Some(true) {
                         SUCCESS
@@ -747,8 +747,8 @@ pub(super) fn render_intelligence_overlay(
         intelligence_line(
             language.tr("RECONCILE"),
             format!(
-                "{reconciliation} · {} pending task(s)",
-                stats.reconciliation_pending
+                "{reconciliation} · {}",
+                pending_tasks_label(stats.reconciliation_pending, language)
             ),
             if stats.reconciliation_converged == Some(true) {
                 SUCCESS
@@ -798,7 +798,14 @@ fn intelligence_refresh_line(
     ))
 }
 
-pub(super) fn intelligence_line(label: &'static str, value: String, color: Color) -> Line<'static> {
+pub(super) fn pending_tasks_label(count: Option<u64>, language: UiLanguage) -> String {
+    match count {
+        Some(count) => format!("{count} {}", language.tr("pending task(s)")),
+        None => language.tr("pending count unknown").to_owned(),
+    }
+}
+
+fn intelligence_line(label: &'static str, value: String, color: Color) -> Line<'static> {
     Line::from(vec![
         Span::styled(format!("{label:<12}"), Style::default().fg(TEXT_DIM)),
         Span::styled(

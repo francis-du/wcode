@@ -662,7 +662,7 @@ impl TaskMonitor {
             }
             "reconciliation_execution_status" => {
                 stats.reconciliation_converged = value["converged"].as_bool();
-                stats.reconciliation_pending = value["pending"].as_u64().unwrap_or(0);
+                stats.reconciliation_pending = value["pending"].as_u64();
             }
             _ => return,
         }

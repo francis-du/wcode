@@ -14,6 +14,23 @@ mod monitor_health;
 mod process_metrics;
 
 #[test]
+fn reconcile_line_keeps_an_unobserved_pending_count_unknown() {
+    let label = super::monitor_intelligence::pending_tasks_label(None, UiLanguage::En);
+    assert!(label.contains("unknown"), "{label}");
+    assert!(!label.contains('0'), "{label}");
+    let zh = super::monitor_intelligence::pending_tasks_label(None, UiLanguage::ZhCn);
+    assert!(zh.contains("未知"), "{zh}");
+    assert_eq!(
+        super::monitor_intelligence::pending_tasks_label(Some(0), UiLanguage::En),
+        "0 pending task(s)"
+    );
+    assert_eq!(
+        super::monitor_intelligence::pending_tasks_label(Some(2), UiLanguage::En),
+        "2 pending task(s)"
+    );
+}
+
+#[test]
 fn authorization_details_are_scrollable_without_losing_the_controls() {
     let (_root, workspaces) = monitor_test_workspaces(&["backend"]);
     let config = monitor_test_config(workspaces);
