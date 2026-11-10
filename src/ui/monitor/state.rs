@@ -658,8 +658,7 @@ impl TaskMonitor {
                 stats.verification_ready = value["ready"].as_bool();
                 stats.verification_blockers = value["blockers"]
                     .as_array()
-                    .map(|blockers| blockers.len() as u64)
-                    .unwrap_or(0);
+                    .map(|blockers| blockers.len() as u64);
             }
             "reconciliation_execution_status" => {
                 stats.reconciliation_converged = value["converged"].as_bool();

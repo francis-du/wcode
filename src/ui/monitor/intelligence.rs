@@ -559,7 +559,10 @@ pub(super) fn render_intelligence_overlay(
                 ),
                 intelligence_line(
                     language.tr("VERIFY"),
-                    format!("{ready} · {} blocker(s)", stats.verification_blockers),
+                    format!(
+                        "{ready} · {}",
+                        blockers_label(stats.verification_blockers, language)
+                    ),
                     if stats.verification_ready == Some(true) {
                         SUCCESS
                     } else {
@@ -753,7 +756,10 @@ pub(super) fn render_intelligence_overlay(
         ),
         intelligence_line(
             language.tr("VERIFY"),
-            format!("{ready} · {} blocker(s)", stats.verification_blockers),
+            format!(
+                "{ready} · {}",
+                blockers_label(stats.verification_blockers, language)
+            ),
             if stats.verification_ready == Some(true) {
                 SUCCESS
             } else {
@@ -844,6 +850,13 @@ pub(super) fn pending_tasks_label(count: Option<u64>, language: UiLanguage) -> S
     match count {
         Some(count) => format!("{count} {}", language.tr("pending task(s)")),
         None => language.tr("pending count unknown").to_owned(),
+    }
+}
+
+pub(super) fn blockers_label(count: Option<u64>, language: UiLanguage) -> String {
+    match count {
+        Some(count) => format!("{count} {}", language.tr("blocker(s)")),
+        None => language.tr("unknown blocker count").to_owned(),
     }
 }
 

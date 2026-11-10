@@ -294,7 +294,7 @@ struct IntelligenceStats {
     evidence_failed: Option<u64>,
     evidence_disagreed: Option<u64>,
     verification_ready: Option<bool>,
-    verification_blockers: u64,
+    verification_blockers: Option<u64>,
     reconciliation_converged: Option<bool>,
     reconciliation_pending: Option<u64>,
     updated_at: Option<Instant>,

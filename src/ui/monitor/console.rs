@@ -292,7 +292,7 @@ fn attention_signals(
                     "Verification blocked",
                     format!(
                         "{} blocker(s) in the latest observed verification plan.",
-                        stats.verification_blockers
+                        stats.verification_blockers.unwrap_or(0)
                     ),
                     "verification_status exposes plan blockers and revision.",
                     ConsoleTab::Summary,

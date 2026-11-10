@@ -42,3 +42,20 @@ fn reconcile_line_keeps_an_unobserved_pending_count_unknown() {
         "2 pending task(s)"
     );
 }
+
+#[test]
+fn verification_blockers_stay_unknown_until_observed() {
+    assert_eq!(
+        super::monitor_intelligence::blockers_label(Some(2), UiLanguage::En),
+        "2 blocker(s)"
+    );
+    assert_eq!(
+        super::monitor_intelligence::blockers_label(Some(0), UiLanguage::En),
+        "0 blocker(s)"
+    );
+    let unknown = super::monitor_intelligence::blockers_label(None, UiLanguage::En);
+    assert!(unknown.contains("unknown"), "{unknown}");
+    assert!(!unknown.contains('0'), "{unknown}");
+    let zh = super::monitor_intelligence::blockers_label(None, UiLanguage::ZhCn);
+    assert!(zh.contains("未知"), "{zh}");
+}
