@@ -482,7 +482,12 @@ fn acceptance_check_summary(
     evidence: &[Evidence],
     revision: &crate::evidence::Revision,
 ) -> Vec<crate::intelligence::ProjectAcceptanceCheckView> {
-    let mut required = BTreeMap::<String, String>::new();
+    // A check is observable when a current verification plan requires it or a
+    // declared acceptance criterion names it. The plan requirement carries the
+    // level it must run at; a criterion-declared check that no plan requires
+    // stays observable too, so "declared but never planned" is visible instead
+    // of the acceptance rows silently disappearing between plans.
+    let mut required = BTreeMap::<String, Option<String>>::new();
     for plan in plans {
         let Some(checks) = plan.plan.required_checks.as_ref() else {
             continue;
@@ -490,7 +495,14 @@ fn acceptance_check_summary(
         for check in checks {
             required
                 .entry(check.id.clone())
-                .or_insert_with(|| plan.plan.deterministic_level.clone());
+                .or_insert_with(|| Some(plan.plan.deterministic_level.clone()));
+        }
+    }
+    for criterion in design.state.acceptance.values() {
+        for reference in &criterion.verification {
+            if let design::VerificationRef::Check { id } = reference {
+                required.entry(id.clone()).or_insert(None);
+            }
         }
     }
     // The newest valid receipt per check id is the observation that applies;
@@ -564,7 +576,7 @@ fn acceptance_check_summary(
             crate::intelligence::ProjectAcceptanceCheckView {
                 id,
                 mapped,
-                required_level: Some(required_level),
+                required_level,
                 level,
                 execution,
                 outcome,

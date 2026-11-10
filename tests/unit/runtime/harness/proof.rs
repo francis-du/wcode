@@ -333,6 +333,29 @@ fn observatory_acceptance_checks_trace_each_required_check_to_its_evidence() {
 }
 
 #[test]
+fn observatory_keeps_a_declared_check_observable_without_a_plan() {
+    let (_root, workspace, harness) = fixture();
+    let project = harness
+        .project_observatory("proof", &workspace, None)
+        .unwrap();
+    let view = project
+        .proof
+        .acceptance
+        .checks
+        .iter()
+        .find(|check| check.id == "rust-test")
+        .expect("a criterion-declared check stays observable with no plan");
+    assert!(view.required_level.is_none());
+    assert!(view.mapped);
+    assert_eq!(view.execution, "unknown");
+    assert_eq!(view.outcome, "unknown");
+    assert_eq!(view.freshness, "missing");
+    assert!(view.evidence_id.is_none());
+    assert!(view.revision.is_none());
+    assert!(view.policy.is_none());
+}
+
+#[test]
 fn current_observatory_plans_require_both_code_and_design_revision() {
     let (root, workspace, harness) = fixture();
     let review = clean_review();
