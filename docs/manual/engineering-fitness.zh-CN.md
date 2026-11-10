@@ -123,7 +123,7 @@ cargo test --release --locked --lib engineering_fitness_trial -- --ignored --noc
 
 固定任务成本对照现在还在每个预算/冷暖分组记录 `estimated_response_token_samples` 与 `total_estimated_response_tokens`。后者只累加实际存在响应的既有 `ceil(序列化响应字节 / 4)` 估算；失败请求会减少样本数，而不是被伪造成零 token 响应。它可用于相同任务在不同 revision 之间比较上下文输出成本，但不是供应方报告的真实 token，也不包含模型输入/输出、宿主工具 schema、编排上下文或失败重试成本。
 
-实时 Jev 运行时遥测与上述基准估算分开。只有供应方同时报告 input、output、total 三项 token 时，单次调用才标记为 `provider_reported`；若只报告部分字段，wcode 会保留每个已有的供应方精确值，只对缺失维度按有界 request/response 字节估算，并标记为 `mixed_provider_and_byte_estimate`。窗口累计逐次相加这些有效值，不再因为窗口中存在缺测就丢弃精确值并把整段窗口全部重算为 bytes/4。它仍不覆盖宿主工具 schema、编排上下文或失败重试 token 成本。
+实时 Jev 运行时遥测与上述基准估算分开。只有供应方同时报告 input、output、total 三项 token 时，单次调用才标记为 `provider_reported`；若只报告部分字段，wcode 会保留每个已有的供应方精确值，只对缺失维度按有界 request/response 字节估算，并标记为 `mixed_provider_and_byte_estimate`。窗口累计逐次相加这些有效值，不再因为窗口中存在缺测就丢弃精确值并把整段窗口全部重算为 bytes/4。它仍不覆盖宿主工具 schema、编排上下文或失败重试 token 成本。从未产生候选动作的检查点不报告任何比较，而不是报告零；没有调用观测的会话不报告耗时，而不是报告测得的零。
 
 `raw_required_source_bytes` 只是未压缩原始源码的预算下界。超过 `4 × 请求预算` 可证明按当前 bytes/4 契约装不下原文；低于该值不代表加上 JSON 和必要元数据后一定可行。无答案或无效标注显示不可用，长正文反例检查该区别。
 
