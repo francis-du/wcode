@@ -913,14 +913,9 @@ def verify_standalone(root: Path, target: Path, diagnostics: bool = False) -> No
 
         hooks = work / "empty-hooks"
         hooks.mkdir()
-        git = ["git", "-c", "core.hooksPath=" + str(hooks),
-               "-c", "core.autocrlf=false", "-c", "commit.gpgSign=false",
-               "-c", "user.name=OSS standalone verification",
+        git = ["git", "-c", "core.hooksPath=" + str(hooks), "-c", "core.autocrlf=false",
+               "-c", "commit.gpgSign=false", "-c", "user.name=OSS standalone verification",
                "-c", "user.email=oss-standalone@invalid"]
-        # A full-tree add over a freshly unpacked ~19 MB source tree can exceed
-        # 30 s on a Windows runner with real-time antivirus scanning, while the
-        # surrounding stages stayed fast. The bound stays generous but finite:
-        # a genuine hang still fails this stage.
         run_stage("git_baseline_init", git + ["init"], standalone, env, 120)
         run_stage("git_baseline_stage", git + ["add", "--force", "--all"], standalone, env, 120)
         run_stage("git_baseline_commit", git + ["commit", "--no-verify", "-m",
