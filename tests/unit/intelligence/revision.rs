@@ -514,7 +514,7 @@ fn mixed_check_test_is_inconclusive_and_known_failure_is_preserved() {
     }
 }
 
-fn coverage_status(
+pub(super) fn coverage_status(
     runtime: &SoftwareIntelligenceRuntime,
     workspace: &Workspace,
     evidence: &[Evidence],

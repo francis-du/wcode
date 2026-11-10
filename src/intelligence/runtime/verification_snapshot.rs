@@ -722,6 +722,42 @@ fn native_report_receipt(
     Ok(Some(receipt))
 }
 
+/// A reused check is only as current as the evidence it came from. The receipt
+/// validated that chain when it was written, but retention may since have pruned
+/// the source, so a snapshot that can no longer see it must not read the reuse as
+/// a current Pass. This mirrors the chain check the receipt applied at write
+/// time, using only what this snapshot can observe.
+fn reuse_chain_is_observable(record: &Evidence, evidence: &[Evidence]) -> bool {
+    // A record with no receipt at all is not a reuse case; the receipt guard
+    // below reports it as an untrusted legacy record instead.
+    let Some(receipt) = record.execution_receipt.as_ref() else {
+        return true;
+    };
+    receipt.checks.iter().all(|item| {
+        item.reused_from.as_ref().is_none_or(|id| {
+            evidence.iter().any(|source| {
+                source.id == *id
+                    && source.effective_authority() == EvidenceAuthority::NativeVerification
+                    && source.kind == EvidenceKind::Verification
+                    && source.execution_policy_binding == record.execution_policy_binding
+                    && source.execution_git_binding == record.execution_git_binding
+                    && source.subject == format!("verification:{}", item.check.id)
+                    && source.result == EvidenceResult::Pass
+                    && source.execution_receipt.as_ref().is_some_and(|prior| {
+                        prior.valid()
+                            && prior.level == receipt.level
+                            && prior.checks.len() == 1
+                            && prior.checks[0].check == item.check
+                            && prior.checks[0].result == EvidenceResult::Pass
+                            && prior.checks[0].execution
+                                == crate::evidence::VerificationCheckExecution::Executed
+                            && prior.checks[0].reused_from.is_none()
+                    })
+            })
+        })
+    })
+}
+
 fn deterministic_plan_result(
     status: &mut VerificationStatus,
     evidence: &[Evidence],
@@ -743,6 +779,7 @@ fn deterministic_plan_result(
         evidence_matches_plan_revision(record, &status.plan)
             && record.kind == EvidenceKind::Verification
             && record.effective_authority() == EvidenceAuthority::NativeVerification
+            && reuse_chain_is_observable(record, evidence)
     }) {
         let Some(receipt) = record.execution_receipt.as_ref().filter(|receipt| {
             receipt.valid()

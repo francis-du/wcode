@@ -11,6 +11,7 @@ mod evolution_cache;
 mod history;
 mod revision;
 mod verification;
+mod verification_reuse;
 
 #[test]
 fn code_query_literals_preserve_multiple_explicit_identifiers() {
