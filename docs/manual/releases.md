@@ -11,14 +11,15 @@ permalink: /docs/releases/
 
 ## Recent
 
+- [v0.9.8 — Design consistency becomes observable](v0.9.8/)
 - [v0.9.7 — Bounded tool responses and precise change navigation](v0.9.7/)
 - [v0.9.6 — Allocation-free repo map and change classification](v0.9.6/)
-- [v0.9.5 — Allocation-free graph search and diff ordering](v0.9.5/)
 
 Release notes are indexed here instead of being expanded in the global documentation sidebar. The three newest releases stay prominent; every older release remains permanently linkable in its minor-series group below, and no release is listed twice.
 
 ## 0.9.x
 
+- [v0.9.5](v0.9.5/) — allocation-free graph search and diff ordering.
 - [v0.9.4](v0.9.4/) — graph query efficiency, allocation-free context search and a decay model whose confidence stays correct.
 - [v0.9.3](v0.9.3/) — change observability, symbol-level change inspection and explicit trust boundaries.
 - [v0.9.2](v0.9.2/) — engineering work queues, retained-output search, guarded source navigation and bounded observation recovery.

@@ -10,11 +10,11 @@ permalink: /docs/
 
 # Repository tools, task tracking and checks
 
+- [v0.9.8 — Design consistency becomes observable](releases/v0.9.8/)
+
 - [v0.9.7 — Bounded tool responses and precise change navigation](releases/v0.9.7/)
 
 - [v0.9.6 — Allocation-free repo map and change classification](releases/v0.9.6/)
-
-- [v0.9.5 — Allocation-free graph search and diff ordering](releases/v0.9.5/)
 
 - [All releases](releases/)
 
