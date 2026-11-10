@@ -12,7 +12,7 @@ function task(change = {}) {
     is_error: false, report: null, acceptance_ready: false, authorization_required: false, error: null, next_action: 'poll_status', ...change };
 }
 function report(change = {}) {
-  return { workspace: 'A', level: 'full', passed: false, checks_run: 1, checks_failed: 1, checks_reused: 0, elapsed_ms: 22,
+  return { workspace: 'A', level: 'full', passed: false, checks_run: 1, checks_failed: 1, checks_reused: 1, elapsed_ms: 22,
     summary: 'One failure', skipped_checks: [], checks_total: 1, checks_truncated: false,
     checks: [{ id: 'native-check', phase: 1, success: false, execution: 'executed', reused: false, exit_code: 1,
       elapsed_ms: 22, queue_wait_ms: 3, execution_ms: 19, command: 'native compiler', stdout_tail: '<script>unsafe</script>', stderr_tail: 'bounded diagnostic',
@@ -117,6 +117,7 @@ async function main() {
     assert.match(html, /Passed/); assert.match(html, /task completion is not success|Task completion is not success/);
     assert.match(html, /&lt;script&gt;unsafe/); assert.doesNotMatch(html, /<script>/);
     assert.match(html, /data-acceptance-evidence="EV-native"/); assert.match(html, /Output is bounded and truncated/);
+    assert.match(html, /1 reused/, 'a reused check must not read as a fresh execution');
     assert.match(html, /queued 3 ms · ran 19 ms/,
       'a check separates its queue wait from its execution time');
     assert.equal(s.run('acceptanceView().status'), 'blocked', 'reported pass must not override canonical blocker');
