@@ -1,6 +1,6 @@
 {
   "name": "wcode",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "wcode repository tools and checks for ZCode, using the current directory as the default workspace.",
   "author": {"name": "francis-du", "url": "https://github.com/francis-du"},
   "repository": "https://github.com/francis-du/wcode",
