@@ -289,3 +289,76 @@ fn monitor_task_bridge_restart_or_orphan_is_visible_and_never_cancelable() {
     let error = bridge.observe(&workspace_id, &record.task_id).unwrap_err();
     assert!(error.to_string().contains("stdout"));
 }
+
+#[tokio::test]
+async fn monitor_task_observation_exposes_the_retained_execution_lane() {
+    use crate::monitor_jobs::MonitorJobAccess;
+    let root = tempfile::tempdir().unwrap();
+    let state = monitor_bridge_fixture(&[root.path()]);
+    let workspace_id = state.workspaces.roots()[0].0.clone();
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    let mut record = TaskRecord::working(
+        "a".repeat(64),
+        workspace_id.clone(),
+        "run_command".into(),
+        state.auth.instance_id().into(),
+    );
+    record.complete(json!({"structuredContent": {
+        "program": "cargo",
+        "args": ["test", "--locked"],
+        "sandbox": "sandbox_unavailable",
+        "exit_code": 101,
+        "success": false,
+        "stdout": "failures:\n",
+        "stderr": ""
+    }}));
+    task_store::persist(&workspace, &record).unwrap();
+    let bridge = MonitorTaskAccess {
+        state: Arc::downgrade(&state),
+    };
+    let observed = bridge.observe(&workspace_id, &record.task_id).unwrap();
+    assert_eq!(observed.sandbox.as_deref(), Some("sandbox_unavailable"));
+    assert_eq!(observed.exit_code, Some(101));
+}
+
+#[tokio::test]
+async fn monitor_task_observation_keeps_an_absent_execution_lane_unknown() {
+    use crate::monitor_jobs::MonitorJobAccess;
+    let root = tempfile::tempdir().unwrap();
+    let state = monitor_bridge_fixture(&[root.path()]);
+    let workspace_id = state.workspaces.roots()[0].0.clone();
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    let owner = "a".repeat(64);
+    let mut live = TaskRecord::working(
+        owner.clone(),
+        workspace_id.clone(),
+        "run_command".into(),
+        state.auth.instance_id().into(),
+    );
+    live.update_command_output(json!({"stdout": "running\n", "stderr": ""}));
+    task_store::persist(&workspace, &live).unwrap();
+    let bridge = MonitorTaskAccess {
+        state: Arc::downgrade(&state),
+    };
+    let observed = bridge.observe(&workspace_id, &live.task_id).unwrap();
+    assert_eq!(observed.sandbox, None);
+
+    for lane in ["", "container", " Direct"] {
+        let mut record = TaskRecord::working(
+            owner.clone(),
+            workspace_id.clone(),
+            "run_command".into(),
+            state.auth.instance_id().into(),
+        );
+        record.complete(json!({"structuredContent": {
+            "program": "cargo",
+            "args": ["test"],
+            "sandbox": lane,
+            "stdout": "",
+            "stderr": ""
+        }}));
+        task_store::persist(&workspace, &record).unwrap();
+        let observed = bridge.observe(&workspace_id, &record.task_id).unwrap();
+        assert_eq!(observed.sandbox, None, "lane {lane:?} must not be reported");
+    }
+}

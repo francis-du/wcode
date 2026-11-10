@@ -37,7 +37,7 @@ fn jobs_output_search_is_literal_scoped_bounded_and_preserves_coverage() {
     );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let results = report["results"].as_array().unwrap();
-    assert_eq!(results.len(), 19);
+    assert_eq!(results.len(), 21);
     assert!(results.iter().all(|result| result["passed"] == true));
     let ablations = report["ablations"]["results"].as_array().unwrap();
     assert_eq!(ablations.len(), 4);

@@ -1,6 +1,8 @@
 // Local inspection of retained, redacted output; no request or command is constructed here.
 // Check/test identity and structured failure locations are deliberately not
-// retained for command jobs; they stay explicit unknowns.
+// retained for command jobs; they stay explicit unknowns. The execution lane is
+// retained runner metadata, so a requested sandbox that fell back to direct is
+// visible without disclosing the command line itself.
 function runtimeJobUnknown(value) {
   return value === null || value === undefined ? t("Unknown") : value;
 }
@@ -9,7 +11,8 @@ function runtimeJobFlag(value) {
 }
 function runtimeJobMetadataHtml(job) {
   const known = job.queue_wait_ms !== null && job.queue_wait_ms !== undefined;
-  return `<p class="panel-meta" data-job-metadata>${esc(t("Runner"))}: ${esc(job.origin === "ui" ? t("UI-owned") : t("MCP-owned"))} · ${esc(t("queue wait"))}: ${esc(runtimeJobUnknown(job.queue_wait_ms))}${known ? " ms" : ""} · ${esc(t("timed out"))}: ${esc(runtimeJobFlag(job.timed_out))} · ${esc(t("output incomplete"))}: ${esc(runtimeJobFlag(job.output_incomplete))}</p>`
+  const lane = typeof job.sandbox === "string" && job.sandbox ? job.sandbox : null;
+  return `<p class="panel-meta" data-job-metadata>${esc(t("Runner"))}: ${esc(job.origin === "ui" ? t("UI-owned") : t("MCP-owned"))} · ${esc(t("queue wait"))}: ${esc(runtimeJobUnknown(job.queue_wait_ms))}${known ? " ms" : ""} · ${esc(t("timed out"))}: ${esc(runtimeJobFlag(job.timed_out))} · ${esc(t("output incomplete"))}: ${esc(runtimeJobFlag(job.output_incomplete))} · ${esc(localized("execution lane", "执行通道"))}: ${esc(lane || t("Unknown"))}</p>`
     + `<p class="panel-meta" data-job-identity>${esc(t("Check / test identity"))}: ${esc(t("Unknown"))} · ${esc(t("Failure location"))}: ${esc(t("Unknown"))} · ${esc(t("Command program, arguments, cwd and structured diagnostics are not retained for command jobs."))}</p>`;
 }
 function runtimeJobOutputScope() {

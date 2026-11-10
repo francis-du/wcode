@@ -78,7 +78,7 @@ fn projection(snapshot: MonitorJobSnapshot) -> Value {
         "origin":match snapshot.origin {MonitorJobOrigin::Ui=>"ui",MonitorJobOrigin::Mcp=>"mcp"},
         "can_cancel":snapshot.can_cancel,"success":snapshot.success,"exit_code":snapshot.exit_code,
         "queue_wait_ms":snapshot.queue_wait_ms,"timed_out":snapshot.timed_out,
-        "output_incomplete":snapshot.output_incomplete,
+        "output_incomplete":snapshot.output_incomplete,"sandbox":snapshot.sandbox,
         "error":error, "stdout":stream(snapshot.stdout), "stderr":stream(snapshot.stderr),
         "completion_is_not_success":true,"acceptance_ready":false})
 }

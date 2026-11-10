@@ -29,6 +29,12 @@ pub(crate) struct MonitorJobSnapshot {
     pub(crate) queue_wait_ms: Option<u64>,
     pub(crate) timed_out: Option<bool>,
     pub(crate) output_incomplete: Option<bool>,
+    /// The lane the completed command actually ran on (`direct`, `sandbox`, or
+    /// `sandbox_unavailable` when a requested sandbox had no usable backend).
+    /// The executable, argument vector, cwd and environment stay out of the
+    /// observation payload by contract, so they remain unknown rather than
+    /// being inferred from the workspace root.
+    pub(crate) sandbox: Option<String>,
 }
 
 /// Implementations enforce exact runtime owner and Workspace/job identity.

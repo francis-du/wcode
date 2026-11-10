@@ -334,6 +334,25 @@ async function main() {
     assert.deepEqual(rows(s), [{ stream: 'stderr', line: 1, text: 'needle stderr' }]);
     assert.doesNotMatch([s.node('#runtimeJobDetail').innerHTML,s.node('#runtimeJobOutputFilters').innerHTML,s.node('#runtimeJobOutput').innerHTML].join(''), /data-job-cancel/); unchangedRequests(s, count);
   });
+  await test('retained execution lane is reported and stays unknown when absent', async () => {
+    const s = await ready(detail('visible', '', {
+      status: 'completed', success: false, exit_code: 1, sandbox: 'sandbox_unavailable',
+    }));
+    const html = s.node('#runtimeJobDetail').innerHTML;
+    assert.match(html, /execution lane: sandbox_unavailable/);
+    assert.doesNotMatch(html, /execution lane: Unknown/);
+    const empty = await ready(detail('visible', '', { sandbox: null }));
+    assert.match(empty.node('#runtimeJobDetail').innerHTML, /execution lane: Unknown/);
+    const absent = await ready(detail('visible', ''));
+    assert.match(absent.node('#runtimeJobDetail').innerHTML, /execution lane: Unknown/);
+  });
+  await test('a malformed execution lane cannot replace the unknown state', async () => {
+    const s = await ready();
+    assert.equal(await observe(s, detail('forged', '', { sandbox: 'container' })), false);
+    assert.equal(view(s).available, false);
+    assert.equal(await observe(s, detail('forged', '', { sandbox: ' Direct' })), false);
+    assert.equal(view(s).available, false);
+  });
   const ablations = await runAblations();
   const report = { suite: 'native-job-output-search', passed: results.filter(row => row.passed).length, total: results.length, results, ablations };
   console.log(JSON.stringify(report, null, 2));

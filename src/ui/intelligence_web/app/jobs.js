@@ -19,6 +19,10 @@ function validRuntimeJob(data, workspace, id) {
     && Number.isSafeInteger(value.total_bytes) && value.total_bytes >= 0
     && typeof value.truncated === "boolean" && typeof value.redacted === "boolean"
     && Array.from(value.text).reduce((n, char) => n + (char.codePointAt(0) < 128 ? 1 : char.codePointAt(0) < 2048 ? 2 : char.codePointAt(0) < 65536 ? 3 : 4), 0) <= 32768;
+  // The execution lane is optional runner metadata; the command line itself is
+  // not part of the payload, so an absent lane stays unknown.
+  const lane = value => value === null || value === undefined
+    || ["direct", "sandbox", "sandbox_unavailable"].includes(value);
   return data?.schema_version === 1 && data.kind === "command_job" && data.workspace === workspace
     && data.task_id === id && data.tool === "run_command" && ["ui", "mcp"].includes(data.origin)
     && ["working", "input_required", "completed", "failed", "cancelled", "unknown"].includes(data.status)
@@ -28,6 +32,7 @@ function validRuntimeJob(data, workspace, id) {
     && (data.queue_wait_ms == null || Number.isSafeInteger(data.queue_wait_ms))
     && (data.timed_out == null || typeof data.timed_out === "boolean")
     && (data.output_incomplete == null || typeof data.output_incomplete === "boolean")
+    && lane(data.sandbox)
     && (data.error === null || (typeof data.error === "string" && data.error.length <= 4000))
     && data.completion_is_not_success === true && data.acceptance_ready === false
     && stream(data.stdout) && stream(data.stderr);

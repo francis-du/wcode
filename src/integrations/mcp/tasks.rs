@@ -113,6 +113,13 @@ impl crate::monitor_jobs::MonitorJobAccess for MonitorTaskAccess {
         let queue_wait_ms = output.and_then(|output| output["process_queue_wait_ms"].as_u64());
         let timed_out = output.and_then(|output| output["timed_out"].as_bool());
         let output_incomplete = output.and_then(|output| output["output_incomplete"].as_bool());
+        // Only the execution lane joins the observation payload. The retained
+        // executable and argument vector stay out of it by contract, so a
+        // requested sandbox that silently fell back to direct is visible while
+        // the command line itself remains undisclosed.
+        let command_sandbox = output
+            .and_then(|output| output["sandbox"].as_str())
+            .filter(|sandbox| matches!(*sandbox, "direct" | "sandbox" | "sandbox_unavailable"));
         Ok(crate::monitor_jobs::MonitorJobSnapshot {
             job_id: record.task_id,
             workspace: record.workspace,
@@ -138,6 +145,7 @@ impl crate::monitor_jobs::MonitorJobAccess for MonitorTaskAccess {
             queue_wait_ms,
             timed_out,
             output_incomplete,
+            sandbox: command_sandbox.map(str::to_owned),
         })
     }
 
