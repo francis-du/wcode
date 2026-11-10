@@ -223,14 +223,20 @@ function renderConsistencyMatrix() {
   if (!els.consistencySection) return;
   const kind = consistencyKinds.includes(state.consistencyKind) ? state.consistencyKind : "all";
   const filter = consistencyStates.includes(state.consistencyState) ? state.consistencyState : "all";
-  const rows = consistencyRows().filter(row =>
+  const allRows = consistencyRows();
+  const rows = allRows.filter(row =>
     (kind === "all" || row.kind === kind) && (filter === "all" || row.state === filter));
   const options = (values, current, labels) => values.map(value =>
     `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(labels(value))}</option>`).join("");
   const kindLabels = value => ({ all: t("All kinds"), requirement: t("Requirements"), component: t("Components"), constraint: t("Constraints"), acceptance: t("Acceptance") })[value];
   const stateLabels = value => ({ all: t("All states"), needs_attention: t("Needs attention"), stable: t("Stable"), unobserved: t("Unobserved") })[value];
+  // An empty matrix has two different causes, and only one of them is a filter.
+  // An unobserved design must not read as "nothing to compare".
+  const emptyMessage = allRows.length === 0
+    ? t("No design object is observed in this snapshot; an empty matrix is not an all-clear.")
+    : t("No design object matches this filter.");
   const body = rows.length ? rows.map(row => `<tr data-consistency-row="${esc(row.navigate)}" data-consistency-label="${esc(localized(`Open ${row.id}`, `打开 ${row.id}`))}" tabindex="0" role="button"${row.state === "needs_attention" ? ' class="attention"' : ""}><th scope="row"><code>${esc(row.id)}</code></th><td>${esc(t({ requirement: "Requirement", component: "Component", constraint: "Constraint", acceptance: "Acceptance" }[row.kind]))}</td><td>${esc(row.design)}</td><td>${esc(row.actual)}</td><td>${esc(row.delta || stateLabels(row.state))}</td></tr>`).join("")
-    : `<tr><td colspan="5" class="empty">${esc(t("No design object matches this filter."))}</td></tr>`;
+    : `<tr><td colspan="5" class="empty">${esc(emptyMessage)}</td></tr>`;
   const driftKind = consistencyDriftKinds.includes(state.consistencyDriftKind) ? state.consistencyDriftKind : "all";
   const drift = state.project?.risk?.drift;
   const driftRows = (drift?.findings || []).filter(finding => driftKind === "all" || finding.kind === driftKind);

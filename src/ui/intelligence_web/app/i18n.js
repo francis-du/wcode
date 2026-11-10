@@ -178,6 +178,7 @@ const translations = {
     "no observation recorded": "没有记录到观测",
     "observation without a comparable value": "观测没有可比较的数值",
     "No design object matches this filter.": "没有设计对象匹配该筛选。",
+    "No design object is observed in this snapshot; an empty matrix is not an all-clear.": "此快照未观测到设计对象；空矩阵不代表一切正常。",
     "Drift queue": "偏离队列",
     "DRIFT QUEUE": "偏离队列",
     "Drift queue filters": "偏离队列筛选",

@@ -242,3 +242,13 @@ test('the matrix filters by kind and an empty match says so', () => {
   s.run('state.consistencyKind="constraint";state.consistencyState="unobserved";renderConsistencyMatrix();');
   assert.match(s.node('#consistencySection').innerHTML, /No design object matches this filter./);
 });
+
+test('an unobserved design does not read as a filter that matched nothing', () => {
+  const s = sandbox();
+  s.context.fixture = { ...project() };
+  s.run('state.project=fixture;state.consistencyKind="all";state.consistencyState="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  assert.match(html, /No design object is observed in this snapshot/);
+  assert.match(html, /not an all-clear/);
+  assert.doesNotMatch(html, /No design object matches this filter/);
+});
