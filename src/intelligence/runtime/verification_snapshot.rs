@@ -779,6 +779,13 @@ fn deterministic_plan_result(
         evidence_matches_plan_revision(record, &status.plan)
             && record.kind == EvidenceKind::Verification
             && record.effective_authority() == EvidenceAuthority::NativeVerification
+            // A receipt records the policy it executed under. Evidence bound to
+            // a different policy than the plan's cannot satisfy it, even when the
+            // code and design revision are unchanged.
+            && record
+                .execution_policy_binding
+                .as_deref()
+                .is_none_or(|binding| binding == status.plan.policy.as_str())
             && reuse_chain_is_observable(record, evidence)
     }) {
         let Some(receipt) = record.execution_receipt.as_ref().filter(|receipt| {
