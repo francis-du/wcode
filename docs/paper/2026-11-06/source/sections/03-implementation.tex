@@ -40,6 +40,8 @@ Operator surfaces are projections of the same recorded state rather than a paral
 
 Every recorded drift is queued separately by the three existing kinds: implementation drift, design drift, and runtime drift. A finding carries its identifier, kind, risk, subject, message, affected requirements and paths; numeric drift additionally carries its metric, expected bound, observed value, unit, deviation, precision and revision binding. A finding is a prompt to confirm, not a verdict on the code. A truncated queue says so, the absence of a finding is not an all-clear, and runtime percentages are never combined with structural dependency percentages.
 
+Absent measurements stay distinct from measured zeros. A count whose source report has not arrived remains unknown instead of printing zero, a change without retained line statistics does not render as `+0/-0`, and a row without an observation never inherits the styling of a passing value. The display therefore cannot assert a measurement that was never taken.
+
 Investigation continuity keeps the operator's place. Switching the main view preserves the active filter, scroll position and selected object, while changing a filter re-selects the first visible item. A shareable link names the workspace, view, object and investigation label, so a copied link restores the object the operator was reading rather than an earlier selection. These are presentation guarantees over recorded state: they create no evidence, execute no check and grant no acceptance.
 
 \subsection{Bounded context as an output contract}
