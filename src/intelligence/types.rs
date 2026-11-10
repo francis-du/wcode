@@ -478,6 +478,24 @@ pub struct ProjectAcceptanceProofSummary {
     pub executed: usize,
     pub passed: usize,
     pub fresh: usize,
+    pub checks: Vec<ProjectAcceptanceCheckView>,
+}
+
+// One required check against the evidence that applies to the current
+// revision. A check with no observation stays `unknown`/`missing` rather than
+// being dropped, so an unexecuted acceptance item is visible next to a failed
+// one instead of hiding behind the aggregate counters.
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectAcceptanceCheckView {
+    pub id: String,
+    pub mapped: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
+    pub execution: String,
+    pub outcome: String,
+    pub freshness: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

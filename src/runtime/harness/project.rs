@@ -370,6 +370,7 @@ fn acceptance_proof_summary(
     traceability: &TraceabilityStatus,
     evidence: &[Evidence],
     revision: &crate::evidence::Revision,
+    plans: &[&crate::verification::VerificationStatus],
 ) -> ProjectAcceptanceProofSummary {
     let acceptance_ids = design
         .state
@@ -471,7 +472,97 @@ fn acceptance_proof_summary(
         executed: outcomes.len(),
         passed: outcomes.iter().filter(|(passed, _)| *passed).count(),
         fresh: outcomes.iter().filter(|(_, fresh)| *fresh).count(),
+        checks: acceptance_check_summary(design, plans, evidence, revision),
     }
+}
+
+fn acceptance_check_summary(
+    design: &design::DesignLoad,
+    plans: &[&crate::verification::VerificationStatus],
+    evidence: &[Evidence],
+    revision: &crate::evidence::Revision,
+) -> Vec<crate::intelligence::ProjectAcceptanceCheckView> {
+    let mut required = BTreeMap::<String, String>::new();
+    for plan in plans {
+        let Some(checks) = plan.plan.required_checks.as_ref() else {
+            continue;
+        };
+        for check in checks {
+            required
+                .entry(check.id.clone())
+                .or_insert_with(|| plan.plan.deterministic_level.clone());
+        }
+    }
+    // The newest valid receipt per check id is the observation that applies;
+    // ties keep the first one seen so a same-timestamp pair stays unambiguous.
+    let mut observed =
+        BTreeMap::<String, (&Evidence, &crate::evidence::VerificationCheckReceipt)>::new();
+    for item in evidence {
+        let Some(receipt) = item.execution_receipt.as_ref() else {
+            continue;
+        };
+        if !receipt.valid() {
+            continue;
+        }
+        for check in &receipt.checks {
+            if !required.contains_key(&check.check.id) {
+                continue;
+            }
+            if observed
+                .get(&check.check.id)
+                .is_none_or(|(existing, _)| existing.timestamp_ms < item.timestamp_ms)
+            {
+                observed.insert(check.check.id.clone(), (item, check));
+            }
+        }
+    }
+    required
+        .into_iter()
+        .map(|(id, required_level)| {
+            let mapped = design.state.acceptance.values().any(|criterion| {
+                criterion.verification.iter().any(|reference| {
+                    matches!(reference, design::VerificationRef::Check { id: declared } if *declared == id)
+                })
+            });
+            let (execution, outcome, level, freshness) = match observed.get(&id) {
+                Some((item, check)) => (
+                    match check.execution {
+                        crate::evidence::VerificationCheckExecution::Executed => "executed",
+                        crate::evidence::VerificationCheckExecution::Unavailable => "unavailable",
+                        crate::evidence::VerificationCheckExecution::TimedOut => "timed_out",
+                        crate::evidence::VerificationCheckExecution::Unknown => "unknown",
+                    }
+                    .to_owned(),
+                    match check.result {
+                        EvidenceResult::Pass => "pass",
+                        EvidenceResult::Fail => "fail",
+                        EvidenceResult::Inconclusive => "inconclusive",
+                        EvidenceResult::Disagree => "disagree",
+                    }
+                    .to_owned(),
+                    item.execution_receipt
+                        .as_ref()
+                        .map(|receipt| receipt.level.clone()),
+                    if item.revision == *revision { "current" } else { "stale" }.to_owned(),
+                ),
+                None => (
+                    "unknown".to_owned(),
+                    "unknown".to_owned(),
+                    None,
+                    "missing".to_owned(),
+                ),
+            };
+            crate::intelligence::ProjectAcceptanceCheckView {
+                id,
+                mapped,
+                required_level: Some(required_level),
+                level,
+                execution,
+                outcome,
+                freshness,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

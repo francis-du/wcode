@@ -271,6 +271,65 @@ fn observatory_reports_the_reconciliation_plan_that_claims_drift() {
 }
 
 #[test]
+fn observatory_acceptance_checks_trace_each_required_check_to_its_evidence() {
+    let (root, workspace, harness) = fixture();
+    fs::create_dir_all(root.path().join("src")).unwrap();
+    fs::write(root.path().join("src/lib.rs"), "pub fn entry() {}\n").unwrap();
+    fs::write(
+        root.path().join("Cargo.toml"),
+        "[package]\nname = \"proof-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let review = clean_review();
+    let plan = harness
+        .verification_plan("proof", &workspace, &review)
+        .unwrap();
+    let required = plan
+        .required_checks
+        .as_ref()
+        .expect("the profile declares checks")
+        .clone();
+    assert!(!required.is_empty());
+    let revision = harness.intelligence.current_revision(&workspace).unwrap();
+    let item = record(
+        "EV-1",
+        "verification:check-rust-test",
+        1,
+        EvidenceResult::Pass,
+        &revision,
+    );
+    crate::evidence_store::persist(&workspace, &item).unwrap();
+    let project = harness
+        .project_observatory("proof", &workspace, None)
+        .unwrap();
+    let checks = &project.proof.acceptance.checks;
+    assert_eq!(
+        checks.len(),
+        required.len(),
+        "every required check stays observable: {checks:?}"
+    );
+    let view = checks
+        .iter()
+        .find(|check| check.id == "rust-test")
+        .expect("the declared check must be observable");
+    assert!(view.mapped, "the design declares this check");
+    assert_eq!(view.execution, "executed");
+    assert_eq!(view.outcome, "pass");
+    assert_eq!(view.freshness, "current");
+    assert_eq!(view.level.as_deref(), Some("full"));
+    assert!(view.required_level.is_some());
+    let unobserved = required
+        .iter()
+        .filter(|check| check.id != "rust-test")
+        .flat_map(|check| checks.iter().find(|view| view.id == check.id))
+        .next()
+        .expect("a second required check must stay visible without evidence");
+    assert_eq!(unobserved.execution, "unknown");
+    assert_eq!(unobserved.outcome, "unknown");
+    assert_eq!(unobserved.freshness, "missing");
+}
+
+#[test]
 fn current_observatory_plans_require_both_code_and_design_revision() {
     let (root, workspace, harness) = fixture();
     let review = clean_review();

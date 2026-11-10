@@ -323,7 +323,6 @@ impl ToolHarness {
         let language_quality = language_quality?;
         let (risk, impact, verification_impact, adaptive_verification) = review_analysis?;
         let verification = verification?;
-        let acceptance = acceptance_proof_summary(&design, &traceability, &evidence, &revision);
         let current_evidence = evidence
             .iter()
             .filter(|item| item.revision == revision)
@@ -336,6 +335,13 @@ impl ToolHarness {
                     && status.plan.revision.as_ref() == Some(&revision)
             })
             .collect::<Vec<_>>();
+        let acceptance = acceptance_proof_summary(
+            &design,
+            &traceability,
+            &evidence,
+            &revision,
+            &current_verification,
+        );
         let mut effective = crate::evidence::latest_current(&evidence, &revision);
         effective.sort_by_key(|item| {
             (

@@ -124,7 +124,7 @@ pub use crate::intelligence_types::{
     DriftStatus, EvidenceStatus, FeatureAcceptanceView, FeatureComponentView,
     FeatureConstraintView, FeatureConvergenceState, FeatureDecisionView,
     FeatureDependencyAlignment, FeatureImplementationView, FeatureRequirementView, GraphContext,
-    GraphContextEdge, GraphContextNode, ProjectAcceptanceProofSummary,
+    GraphContextEdge, GraphContextNode, ProjectAcceptanceCheckView, ProjectAcceptanceProofSummary,
     ProjectAdaptiveVerificationView, ProjectChangeView, ProjectCodeStats,
     ProjectConvergenceSummary, ProjectCostEvaluationView, ProjectCostFrontierEntryView,
     ProjectCostSentinelView, ProjectEngineeringJournalView, ProjectEngineeringMilestoneView,

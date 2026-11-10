@@ -188,4 +188,8 @@ async fn project_payload_carries_design_review_truncation_and_runtime_identity()
         value["reconciliation_execution"].is_array(),
         "the matrix must be able to show live plan execution per plan: {value}"
     );
+    assert!(
+        value["proof"]["acceptance"]["checks"].is_array(),
+        "the matrix must be able to drill from the acceptance counters into each required check: {value}"
+    );
 }
