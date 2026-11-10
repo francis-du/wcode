@@ -264,3 +264,26 @@ test('a partial benchmark is not presented as a current observation', () => {
   const html = s.node('#observationCoverage').innerHTML;
   assert.match(html, /Historical or partial/);
 });
+
+test('a change without retained diff counts stays unknown instead of a measured zero', () => {
+  const s = sandbox();
+  const change = (path, additions, deletions) => ({
+    path, status: 'modified', category: 'source', scope: 'source',
+    additions, deletions, staged: false, unstaged: true, untracked: false,
+    affected_requirements: [], affected_components: [], changed_ranges_truncated: false,
+  });
+  s.context.fixture = { ...project(), changes: [
+    change('assets/logo.png', null, null),
+    change('src/a.rs', 2, 1),
+    change('src/partial.rs', 4, null),
+  ] };
+  s.run('state.project=fixture;renderChanges();');
+  const html = s.node('#changes').innerHTML;
+  assert.doesNotMatch(html, /\+0\s*-0/, 'an unretained diff must not render as a measured zero');
+  assert.match(html, /<span class="change-num add">\+2<\/span> <span class="change-num remove">-1<\/span>/,
+    'retained counts keep their exact values');
+  assert.match(html, /<span class="change-num add">\+4<\/span> <span class="change-num unknown">-\?<\/span>/,
+    'a half-known diff keeps the unknown side unknown');
+  const unknown = (html.match(/class="change-num unknown"/g) || []).length;
+  assert.equal(unknown, 2, 'the binary change and the unknown deletion side each stay unknown');
+});

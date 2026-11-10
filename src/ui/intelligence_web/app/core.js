@@ -367,10 +367,19 @@ const statusClass = (value) => {
   ) return "warn";
   return "info";
 };
-const changeNums = (item) =>
-  `<span class="change-num add">+${
-    num(item.additions || 0)
-  }</span> <span class="change-num remove">-${num(item.deletions || 0)}</span>`;
+// Diff line counts are optional in the change snapshot: a binary change or a
+// review that retained no numstat must stay unknown instead of reading as
+// "zero lines changed".
+const changeNums = (item) => {
+  const additions = item.additions, deletions = item.deletions;
+  if (additions == null && deletions == null) {
+    return `<span class="change-num unknown">${esc(t("unknown"))}</span>`;
+  }
+  const side = (value, sign, tone) => value == null
+    ? `<span class="change-num unknown">${sign}?</span>`
+    : `<span class="change-num ${tone}">${sign}${num(value)}</span>`;
+  return `${side(additions, "+", "add")} ${side(deletions, "-", "remove")}`;
+};
 const requestHeaders = (workspace = state.current) => {
   const headers = { "X-Wcode-UI-Token": token };
   if (workspace) headers["X-Wcode-Workspace"] = workspace;
