@@ -35,6 +35,7 @@ pub fn evaluate_snapshot(
     plan_id: &str,
     current_revision: &Revision,
     evidence: &[Evidence],
+    git_binding: Option<&super::change::ExecutionGitBinding>,
 ) -> Result<VerificationStatus> {
     ensure!(
         bounded_text(workspace, 256) && bounded_text(plan_id, 160),
@@ -59,6 +60,7 @@ pub fn evaluate_snapshot(
         status,
         current_revision,
         evidence,
+        git_binding,
     )
 }
 

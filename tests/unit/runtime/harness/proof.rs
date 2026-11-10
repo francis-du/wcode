@@ -379,7 +379,7 @@ fn current_observatory_plans_require_both_code_and_design_revision() {
     assert_eq!(after.proof.current_verification_plans, 0);
     assert_eq!(
         harness
-            .verification_history("proof", &workspace, 100)
+            .verification_history("proof", &workspace, 100, None)
             .unwrap()
             .len(),
         1,

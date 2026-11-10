@@ -708,7 +708,7 @@ async fn mcp_stage_reports_cannot_satisfy_required_stages_or_replace_native_fail
     }
     let missing = state
         .harness
-        .verification_status(&workspace_id, &workspace, &plan.id)
+        .verification_status(&workspace_id, &workspace, &plan.id, None)
         .unwrap();
     assert!(!missing.ready);
     for stage in ["property", "mutation"] {
@@ -775,7 +775,7 @@ async fn mcp_stage_reports_cannot_satisfy_required_stages_or_replace_native_fail
     assert_eq!(forged["structuredContent"]["result"], "inconclusive");
     let failed = state
         .harness
-        .verification_status(&workspace_id, &workspace, &plan.id)
+        .verification_status(&workspace_id, &workspace, &plan.id, None)
         .unwrap();
     assert!(!failed.ready);
     assert_eq!(failed.stage_results["property"], EvidenceResult::Fail);

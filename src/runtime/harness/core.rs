@@ -675,7 +675,7 @@ impl ToolHarness {
         workspace: &Workspace,
         plan_id: &str,
     ) -> Result<Value> {
-        let mut before = self.verification_status(workspace_id, workspace, plan_id)?;
+        let mut before = self.verification_status(workspace_id, workspace, plan_id, None)?;
         let registry = stage_executor::registry(workspace)?;
         let execution_git_binding = self.execution_git_binding(workspace).await?;
         // Legacy/unbound Stage passes cannot suppress execution on a new Git HEAD.
@@ -824,7 +824,7 @@ impl ToolHarness {
                 results.push(execution);
             }
         }
-        let after = self.verification_status(workspace_id, workspace, plan_id)?;
+        let after = self.verification_status(workspace_id, workspace, plan_id, None)?;
         Ok(json!({
             "workspace": workspace_id,
             "plan_id": plan_id,
@@ -864,21 +864,6 @@ impl ToolHarness {
         )
     }
 
-    pub fn verification_status(
-        &self,
-        workspace_id: &str,
-        workspace: &Workspace,
-        plan_id: &str,
-    ) -> Result<VerificationStatus> {
-        let status = self
-            .intelligence
-            .verification_status(workspace_id, workspace, plan_id)?;
-        if status.plan.workspace != workspace_id {
-            bail!("verification plan does not belong to the selected workspace");
-        }
-        Ok(status)
-    }
-
     pub(crate) fn verification_status_for_revision(
         &self,
         workspace_id: &str,
@@ -897,16 +882,6 @@ impl ToolHarness {
     ) -> Result<Option<VerificationStatus>> {
         self.intelligence
             .verification_status_if_present(workspace_id, workspace, plan_id)
-    }
-
-    pub fn verification_history(
-        &self,
-        workspace_id: &str,
-        workspace: &Workspace,
-        limit: usize,
-    ) -> Result<Vec<VerificationStatus>> {
-        self.intelligence
-            .verification_history(workspace_id, workspace, limit)
     }
 
     pub(super) fn known_checks(&self, workspace: &Workspace) -> Result<HashSet<String>> {

@@ -287,7 +287,7 @@ fn low_risk_verification_becomes_ready_after_deterministic_and_blind_review_pass
         )
         .unwrap();
     let status = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(status.deterministic_result, Some(EvidenceResult::Pass));
     assert!(status.ready, "{:?}", status.blockers);
@@ -344,7 +344,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
         )
         .unwrap();
     let before = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert!(before.ready, "{:?}", before.blockers);
 
@@ -354,7 +354,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
     )
     .unwrap();
     let after = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(
         after.plan.subject, plan.subject,
@@ -379,7 +379,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
         )
         .unwrap();
     let old_plan = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(
         old_plan.deterministic_result,
@@ -390,7 +390,7 @@ fn design_revision_change_invalidates_plan_and_evidence() {
         .create_plan_for_risk("demo", &workspace, RiskLevel::Low)
         .unwrap();
     let current = runtime
-        .verification_status("demo", &workspace, &current_plan.id)
+        .verification_status("demo", &workspace, &current_plan.id, None)
         .unwrap();
     assert_eq!(current.deterministic_result, Some(EvidenceResult::Fail));
 }
@@ -417,7 +417,7 @@ fn verification_jobs_resume_in_a_fresh_runtime() {
         .unwrap();
     assert_eq!(job.plan_id, plan.id);
     let status = second
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(status.claimed, 1);
 }
@@ -431,7 +431,7 @@ fn required_stage_evidence_replaces_automation_gap_blockers() {
         .create_plan_for_risk("demo", &workspace, RiskLevel::Medium)
         .unwrap();
     let before = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert!(before
         .blockers
@@ -461,7 +461,7 @@ fn required_stage_evidence_replaces_automation_gap_blockers() {
             .unwrap();
     }
     let after = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(
         after.stage_results.get("property"),
@@ -513,7 +513,7 @@ fn admitted_stage_evidence_stays_an_external_receipt() {
     assert_eq!(evidence.authority, EvidenceAuthority::SelfReported);
     assert_eq!(evidence.confidence, Confidence::Low);
     let after = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_ne!(
         after.stage_results.get("property"),
@@ -571,7 +571,7 @@ fn stage_readiness_requires_every_changed_language_target() {
         )
         .unwrap();
     let partial = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(
         partial.stage_target_results["property"]["language:rust"],
@@ -603,7 +603,7 @@ fn stage_readiness_requires_every_changed_language_target() {
         )
         .unwrap();
     let covered = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(covered.stage_results["property"], EvidenceResult::Pass);
     assert!(!covered.blockers.iter().any(|blocker| {
@@ -649,7 +649,7 @@ fn stage_readiness_aggregates_latest_result_per_producer_fail_closed() {
     }
 
     let failed = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(
         failed.stage_results.get("property"),
@@ -685,7 +685,7 @@ fn stage_readiness_aggregates_latest_result_per_producer_fail_closed() {
         )
         .unwrap();
     let remediated = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(
         remediated.stage_results.get("property"),
@@ -780,7 +780,7 @@ async fn configured_stage_executor_produces_real_persistent_stage_evidence() {
         )
         .unwrap();
     let status = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(
         status.stage_results.get("property"),
@@ -788,7 +788,7 @@ async fn configured_stage_executor_produces_real_persistent_stage_evidence() {
     );
     let fresh = SoftwareIntelligenceRuntime::default();
     let status = fresh
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(
         status.stage_results.get("property"),
@@ -836,7 +836,7 @@ fn equal_timestamp_human_approval_conflict_fails_closed() {
     crate::evidence_store::persist(&workspace, &approved).unwrap();
 
     let conflicted = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert!(!conflicted.human_approval);
     assert!(conflicted
@@ -848,7 +848,7 @@ fn equal_timestamp_human_approval_conflict_fails_closed() {
     later.timestamp_ms = 43;
     crate::evidence_store::persist(&workspace, &later).unwrap();
     let resolved = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert!(
         resolved.human_approval,
@@ -865,7 +865,7 @@ fn explicit_human_approval_clears_only_the_human_blocker() {
         .create_plan_for_risk("demo", &workspace, RiskLevel::Critical)
         .unwrap();
     let before = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert!(before
         .blockers
@@ -880,7 +880,7 @@ fn explicit_human_approval_clears_only_the_human_blocker() {
         )
         .unwrap();
     let after = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert!(after.human_approval);
     assert!(!after
@@ -956,7 +956,7 @@ fn reviewer_disagreement_is_persisted_as_evidence_once() {
         .unwrap();
 
     let status = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert_eq!(status.disagreements, 1);
     let evidence = runtime

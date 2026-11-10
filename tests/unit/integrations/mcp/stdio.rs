@@ -261,13 +261,23 @@ async fn human_decision_revision_drift_still_requires_replanning() {
     assert!(
         !state
             .harness
-            .verification_status(state.workspaces.default_id(), &workspace, "VP-human-bound")
+            .verification_status(
+                state.workspaces.default_id(),
+                &workspace,
+                "VP-human-bound",
+                None
+            )
             .unwrap()
             .human_approval
     );
     assert!(state
         .harness
-        .verification_status(state.workspaces.default_id(), &workspace, "VP-human-bound")
+        .verification_status(
+            state.workspaces.default_id(),
+            &workspace,
+            "VP-human-bound",
+            None
+        )
         .unwrap()
         .blockers
         .contains(&"human-approval-required".to_owned()));

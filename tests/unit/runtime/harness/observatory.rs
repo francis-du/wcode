@@ -178,6 +178,7 @@ async fn project_observatory_change_ranges_surface_in_project_changes() {
             &workspace,
             Some(&review),
             Some(change_ranges),
+            None,
         )
         .unwrap();
     let change = project

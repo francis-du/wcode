@@ -110,14 +110,30 @@ impl ToolHarness {
         let id = workspace_id.to_owned();
         let selected = workspace.clone();
         let review = review.cloned();
+        // The Git identity is part of the input the verification ran against, so
+        // the observatory carries it into the plan result instead of letting a
+        // moved index or HEAD read as the same input.
+        let git_binding = self.execution_git_binding(workspace).await.ok().flatten();
         let mut snapshot = tokio::task::spawn_blocking(move || match change_ranges {
             Some(change_ranges) => harness.project_observatory_with_change_ranges(
                 id,
                 &selected,
                 review.as_ref(),
                 Some(change_ranges),
+                git_binding.as_ref(),
             ),
-            None => harness.project_observatory(id, &selected, review.as_ref()),
+            // Without a Git identity there is nothing to compare the receipts
+            // against, so the plain builder is the honest equivalent.
+            None => match git_binding.as_ref() {
+                Some(git_binding) => harness.project_observatory_with_change_ranges(
+                    id,
+                    &selected,
+                    review.as_ref(),
+                    None,
+                    Some(git_binding),
+                ),
+                None => harness.project_observatory(id, &selected, review.as_ref()),
+            },
         })
         .await??;
         let captured = self
@@ -145,7 +161,7 @@ impl ToolHarness {
         workspace: &Workspace,
         review: Option<&ChangeReviewReport>,
     ) -> Result<ProjectObservatory> {
-        self.project_observatory_with_change_ranges(workspace_id, workspace, review, None)
+        self.project_observatory_with_change_ranges(workspace_id, workspace, review, None, None)
     }
 
     pub fn project_observatory_with_change_ranges(
@@ -154,6 +170,7 @@ impl ToolHarness {
         workspace: &Workspace,
         review: Option<&ChangeReviewReport>,
         change_ranges: Option<crate::workspace::ChangedRangesSnapshot>,
+        git_binding: Option<&crate::verification::change::ExecutionGitBinding>,
     ) -> Result<ProjectObservatory> {
         const MAX_OBSERVATORY_SYMBOLS: usize = 5_000;
         const MAX_OBSERVATORY_HISTORY: usize = 32;
@@ -317,6 +334,7 @@ impl ToolHarness {
                     100,
                     &revision,
                     &evidence,
+                    git_binding,
                 )
             },
         );

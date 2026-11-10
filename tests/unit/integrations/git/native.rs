@@ -166,7 +166,7 @@ impl NativeFixture {
     pub fn submit_fixture_reviews(&self, plan: &VerificationPlan) {
         let status = self
             .harness
-            .verification_status(ID, &self.workspace, &plan.id)
+            .verification_status(ID, &self.workspace, &plan.id, None)
             .unwrap();
         for queued in status.jobs {
             let reviewer = format!("fixture-reviewer:{:?}", queued.role);
@@ -206,7 +206,7 @@ impl NativeFixture {
             .clone();
         let plan = self
             .harness
-            .verification_status(ID, &self.workspace, &plan_id)
+            .verification_status(ID, &self.workspace, &plan_id, None)
             .unwrap()
             .plan;
         assert!(plan.require_human_approval);

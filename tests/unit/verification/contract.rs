@@ -109,7 +109,7 @@ fn evaluate(
     revision: &Revision,
     evidence: &[Evidence],
 ) -> VerificationStatus {
-    evaluate_snapshot(state, WORKSPACE, PLAN, revision, evidence).unwrap()
+    evaluate_snapshot(state, WORKSPACE, PLAN, revision, evidence, None).unwrap()
 }
 
 #[test]
@@ -122,6 +122,7 @@ fn public_snapshot_contract_matches_native_engine_without_mutation() {
         state.status(PLAN).unwrap(),
         &revision,
         &evidence,
+        None,
     )
     .unwrap();
     assert!(public.ready);
@@ -430,7 +431,7 @@ fn public_snapshot_contract_rejects_corrupt_state_relations_and_statuses() {
         let mut invalid = state.clone();
         mutate(&mut invalid);
         assert!(
-            evaluate_snapshot(&invalid, WORKSPACE, PLAN, &revision, &evidence).is_err(),
+            evaluate_snapshot(&invalid, WORKSPACE, PLAN, &revision, &evidence, None).is_err(),
             "{label}"
         );
     }
@@ -439,8 +440,10 @@ fn public_snapshot_contract_rejects_corrupt_state_relations_and_statuses() {
 #[test]
 fn public_snapshot_contract_rejects_workspace_and_plan_mismatch() {
     let (state, revision, evidence) = fixture();
-    assert!(evaluate_snapshot(&state, "other", PLAN, &revision, &evidence).is_err());
-    assert!(evaluate_snapshot(&state, WORKSPACE, "VP-missing", &revision, &evidence).is_err());
+    assert!(evaluate_snapshot(&state, "other", PLAN, &revision, &evidence, None).is_err());
+    assert!(
+        evaluate_snapshot(&state, WORKSPACE, "VP-missing", &revision, &evidence, None).is_err()
+    );
 }
 
 #[test]
@@ -453,7 +456,8 @@ fn public_snapshot_contract_rejects_conflicting_evidence_identity() {
         WORKSPACE,
         PLAN,
         &revision,
-        &[evidence[0].clone(), conflict]
+        &[evidence[0].clone(), conflict],
+        None,
     )
     .is_err());
     assert!(
@@ -466,7 +470,7 @@ fn public_snapshot_contract_rejects_conflicting_evidence_identity() {
     );
     let mut invalid = evidence[0].clone();
     invalid.execution_receipt.as_mut().unwrap().required_checks[0].signature = "invalid".into();
-    assert!(evaluate_snapshot(&state, WORKSPACE, PLAN, &revision, &[invalid]).is_err());
+    assert!(evaluate_snapshot(&state, WORKSPACE, PLAN, &revision, &[invalid], None).is_err());
 }
 
 #[test]
@@ -474,7 +478,7 @@ fn public_snapshot_contract_rejects_bounded_count_record_and_state_overflow() {
     let (state, revision, evidence) = fixture();
     let count = vec![evidence[0].clone(); MAX_EVIDENCE_RECORDS + 1];
     assert!(
-        evaluate_snapshot(&state, WORKSPACE, PLAN, &revision, &count)
+        evaluate_snapshot(&state, WORKSPACE, PLAN, &revision, &count, None)
             .unwrap_err()
             .to_string()
             .contains("count")
@@ -484,7 +488,7 @@ fn public_snapshot_contract_rejects_bounded_count_record_and_state_overflow() {
     record.risks = record.claims.clone();
     record.validate().unwrap();
     assert!(
-        evaluate_snapshot(&state, WORKSPACE, PLAN, &revision, &[record])
+        evaluate_snapshot(&state, WORKSPACE, PLAN, &revision, &[record], None)
             .unwrap_err()
             .to_string()
             .contains("record")
@@ -492,7 +496,7 @@ fn public_snapshot_contract_rejects_bounded_count_record_and_state_overflow() {
     let mut huge = state;
     huge.plans.get_mut(PLAN).unwrap().policy = "x".repeat(MAX_STATE_BYTES);
     assert!(
-        evaluate_snapshot(&huge, WORKSPACE, PLAN, &revision, &evidence)
+        evaluate_snapshot(&huge, WORKSPACE, PLAN, &revision, &evidence, None)
             .unwrap_err()
             .to_string()
             .contains("state")
@@ -517,7 +521,7 @@ fn public_snapshot_contract_rejects_aggregate_evidence_budget() {
         })
         .collect::<Vec<_>>();
     assert!(
-        evaluate_snapshot(&state, WORKSPACE, PLAN, &revision, &records)
+        evaluate_snapshot(&state, WORKSPACE, PLAN, &revision, &records, None)
             .unwrap_err()
             .to_string()
             .contains("total")

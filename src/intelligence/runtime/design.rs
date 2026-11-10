@@ -909,6 +909,7 @@ impl SoftwareIntelligenceRuntime {
         workspace_id: &str,
         workspace: &Workspace,
         plan_id: &str,
+        git_binding: Option<&crate::verification::change::ExecutionGitBinding>,
     ) -> Result<VerificationStatus> {
         self.ensure_verification_loaded(workspace_id, workspace)?;
         let status = {
@@ -925,7 +926,7 @@ impl SoftwareIntelligenceRuntime {
         }
         let revision = self.current_revision(workspace)?;
         let evidence = self.evidence_records(workspace_id, workspace)?;
-        Self::verification_status_from_snapshot(status, &revision, &evidence)
+        Self::verification_status_from_snapshot(status, &revision, &evidence, git_binding)
     }
 
     pub(super) fn verification_base_history(
@@ -953,6 +954,7 @@ impl SoftwareIntelligenceRuntime {
         workspace_id: &str,
         workspace: &Workspace,
         limit: usize,
+        git_binding: Option<&crate::verification::change::ExecutionGitBinding>,
     ) -> Result<Vec<VerificationStatus>> {
         let history = self.verification_base_history(workspace_id, workspace, limit)?;
         if history.is_empty() {
@@ -964,7 +966,9 @@ impl SoftwareIntelligenceRuntime {
         let evidence = self.evidence_records(workspace_id, workspace)?;
         history
             .into_iter()
-            .map(|status| Self::verification_status_from_snapshot(status, &revision, &evidence))
+            .map(|status| {
+                Self::verification_status_from_snapshot(status, &revision, &evidence, git_binding)
+            })
             .collect()
     }
 
@@ -975,10 +979,13 @@ impl SoftwareIntelligenceRuntime {
         limit: usize,
         revision: &Revision,
         evidence: &[Evidence],
+        git_binding: Option<&crate::verification::change::ExecutionGitBinding>,
     ) -> Result<Vec<VerificationStatus>> {
         self.verification_base_history(workspace_id, workspace, limit)?
             .into_iter()
-            .map(|status| Self::verification_status_from_snapshot(status, revision, evidence))
+            .map(|status| {
+                Self::verification_status_from_snapshot(status, revision, evidence, git_binding)
+            })
             .collect()
     }
 }

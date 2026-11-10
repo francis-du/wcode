@@ -33,7 +33,7 @@ fn history_snapshot_reuses_reads_and_matches_individual_statuses() {
         .iter()
         .map(|plan| {
             let status = runtime
-                .verification_status("history", &workspace, &plan.id)
+                .verification_status("history", &workspace, &plan.id, None)
                 .unwrap();
             (plan.id.clone(), serde_json::to_value(status).unwrap())
         })
@@ -44,7 +44,7 @@ fn history_snapshot_reuses_reads_and_matches_individual_statuses() {
     reset_reads();
     let start = Instant::now();
     let actual = runtime
-        .verification_history("history", &workspace, 100)
+        .verification_history("history", &workspace, 100, None)
         .unwrap();
     let batched_us = start.elapsed().as_micros();
     let batched_reads = reads();
@@ -81,7 +81,7 @@ fn empty_history_does_not_scan_source_or_evidence() {
     let runtime = SoftwareIntelligenceRuntime::default();
     reset_reads();
     assert!(runtime
-        .verification_history("empty", &workspace, 100)
+        .verification_history("empty", &workspace, 100, None)
         .unwrap()
         .is_empty());
     assert_eq!(reads(), (0, 0));
@@ -98,7 +98,9 @@ fn history_rejects_foreign_plan_before_reading_workspace_inputs() {
         .create_plan_for_risk("A", &a, RiskLevel::Low)
         .unwrap();
     reset_reads();
-    let error = runtime.verification_status("B", &b, &plan.id).unwrap_err();
+    let error = runtime
+        .verification_status("B", &b, &plan.id, None)
+        .unwrap_err();
     assert!(error.to_string().contains("selected workspace"));
     assert_eq!(reads(), (0, 0));
 }
@@ -176,7 +178,7 @@ fn current_revision_lookup_is_not_limited_by_legacy_recent_history_window() {
 
     let runtime = SoftwareIntelligenceRuntime::default();
     assert!(!runtime
-        .verification_history("history", &workspace, 20)
+        .verification_history("history", &workspace, 20, None)
         .unwrap()
         .iter()
         .any(|status| status.plan.id == "VP-00-current"));
@@ -278,7 +280,7 @@ fn history_snapshot_is_not_cached_across_edits_or_new_evidence() {
         crate::evidence_store::persist(&workspace, &record).unwrap();
         assert_eq!(
             runtime
-                .verification_history("history", &workspace, 100)
+                .verification_history("history", &workspace, 100, None)
                 .unwrap()[0]
                 .deterministic_result,
             Some(result)
@@ -286,7 +288,7 @@ fn history_snapshot_is_not_cached_across_edits_or_new_evidence() {
     }
     fs::write(dir.path().join("changed.rs"), "fn changed() {}\n").unwrap();
     let changed = runtime
-        .verification_history("history", &workspace, 100)
+        .verification_history("history", &workspace, 100, None)
         .unwrap();
     assert!(!changed[0].ready);
     assert!(changed[0]

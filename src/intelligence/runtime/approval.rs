@@ -153,7 +153,7 @@ impl SoftwareIntelligenceRuntime {
         execution: Option<&ReconciliationExecution>,
     ) -> Result<VerificationStatus> {
         let original =
-            self.verification_status(workspace_id, workspace, &plan.verification_plan.id)?;
+            self.verification_status(workspace_id, workspace, &plan.verification_plan.id, None)?;
         let current_revision = self.current_revision(workspace)?;
         let approved = crate::reconciliation_approval::load(workspace, &plan.id)?.is_some();
         if !approved
@@ -163,7 +163,7 @@ impl SoftwareIntelligenceRuntime {
             return Ok(original);
         }
 
-        let history = self.verification_history(workspace_id, workspace, 100)?;
+        let history = self.verification_history(workspace_id, workspace, 100, None)?;
         Ok(
             select_current_reconciliation_verification(plan, &current_revision, &history)
                 .cloned()

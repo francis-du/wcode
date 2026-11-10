@@ -69,7 +69,7 @@ pub(super) async fn run_intelligence_cli(
         let verification_executors = harness.verification_executor_status(&workspace)?;
         let evidence = harness.evidence_status(&workspace_id, &workspace, None, 100)?;
         let reconciliation = harness.reconciliation_history(&workspace, 20)?;
-        let verification = harness.verification_history(&workspace_id, &workspace, 20)?;
+        let verification = harness.verification_history(&workspace_id, &workspace, 20, None)?;
         let risk = if workspace.exec_enabled() && workspace.root().join(".git").is_dir() {
             match harness
                 .review_changes(workspace_id.clone(), &workspace, 30, monitor)
@@ -309,7 +309,7 @@ pub(super) async fn run_verification_cli(
         let (_, workspace) = workspaces.select(Some(&workspace_id))?;
         let mut execution = None;
         let statuses = if let Some(plan_id) = requested_plan {
-            match harness.verification_status(&workspace_id, &workspace, plan_id) {
+            match harness.verification_status(&workspace_id, &workspace, plan_id, None) {
                 Ok(_) => {
                     if execute_stages {
                         execution = Some(
@@ -318,12 +318,12 @@ pub(super) async fn run_verification_cli(
                                 .await?,
                         );
                     }
-                    vec![harness.verification_status(&workspace_id, &workspace, plan_id)?]
+                    vec![harness.verification_status(&workspace_id, &workspace, plan_id, None)?]
                 }
                 Err(_) => Vec::new(),
             }
         } else {
-            harness.verification_history(&workspace_id, &workspace, 50)?
+            harness.verification_history(&workspace_id, &workspace, 50, None)?
         };
         if requested_plan.is_none() || !statuses.is_empty() {
             entries.push(json!({

@@ -257,7 +257,7 @@ fn refresh_verification(
     workspace: &crate::workspace::Workspace,
     errors: &mut Vec<String>,
 ) {
-    match harness.verification_history(workspace_id, workspace, 1) {
+    match harness.verification_history(workspace_id, workspace, 1, None) {
         Ok(history) => {
             if let Some(status) = history.first() {
                 record_refresh(

@@ -43,7 +43,7 @@ impl SoftwareIntelligenceRuntime {
             return Ok(None);
         };
         let evidence = self.evidence_records(workspace_id, workspace)?;
-        Self::verification_status_from_snapshot(status, revision, &evidence).map(Some)
+        Self::verification_status_from_snapshot(status, revision, &evidence, None).map(Some)
     }
 
     pub(crate) fn verification_status_if_present(
@@ -74,7 +74,7 @@ impl SoftwareIntelligenceRuntime {
         }
         let revision = self.current_revision(workspace)?;
         let evidence = self.evidence_records(workspace_id, workspace)?;
-        Self::verification_status_from_snapshot(status, &revision, &evidence).map(Some)
+        Self::verification_status_from_snapshot(status, &revision, &evidence, None).map(Some)
     }
 
     pub(crate) fn status_proof_reconciliation_snapshot(
@@ -107,7 +107,9 @@ impl SoftwareIntelligenceRuntime {
             Self::evidence_status_from_snapshot(workspace_id, None, evidence_limit, &evidence);
         let verification = history
             .into_iter()
-            .map(|status| Self::verification_status_from_snapshot(status, &revision, &evidence))
+            .map(|status| {
+                Self::verification_status_from_snapshot(status, &revision, &evidence, None)
+            })
             .collect::<Result<Vec<_>>>()?;
         let reconciliation_execution = self
             .reconciliation_execution_statuses_from_snapshot(
@@ -133,6 +135,7 @@ impl SoftwareIntelligenceRuntime {
         plan_ids: &[String],
         revision: &Revision,
         evidence: &[Evidence],
+        git_binding: Option<&crate::verification::change::ExecutionGitBinding>,
     ) -> Result<Vec<VerificationStatus>> {
         self.ensure_verification_loaded(workspace_id, workspace)?;
         let statuses = {
@@ -153,7 +156,7 @@ impl SoftwareIntelligenceRuntime {
                         "verification plan does not belong to the selected workspace"
                     ));
                 }
-                Self::verification_status_from_snapshot(status, revision, evidence)
+                Self::verification_status_from_snapshot(status, revision, evidence, git_binding)
             })
             .collect()
     }
@@ -163,6 +166,7 @@ impl SoftwareIntelligenceRuntime {
         mut status: VerificationStatus,
         current_revision: &Revision,
         evidence: &[Evidence],
+        git_binding: Option<&crate::verification::change::ExecutionGitBinding>,
     ) -> Result<VerificationStatus> {
         if !revision_identity_complete(current_revision) {
             status.blockers.push("workspace-revision-incomplete".into());
@@ -196,7 +200,7 @@ impl SoftwareIntelligenceRuntime {
                     .push("workspace-revision-changed-since-plan".into());
             }
         }
-        status.deterministic_result = deterministic_plan_result(&mut status, evidence);
+        status.deterministic_result = deterministic_plan_result(&mut status, evidence, git_binding);
         match status.deterministic_result {
             Some(EvidenceResult::Pass) => {}
             Some(EvidenceResult::Fail) => status
@@ -761,6 +765,7 @@ fn reuse_chain_is_observable(record: &Evidence, evidence: &[Evidence]) -> bool {
 fn deterministic_plan_result(
     status: &mut VerificationStatus,
     evidence: &[Evidence],
+    git_binding: Option<&crate::verification::change::ExecutionGitBinding>,
 ) -> Option<EvidenceResult> {
     let Some(required) = status
         .plan
@@ -786,6 +791,16 @@ fn deterministic_plan_result(
                 .execution_policy_binding
                 .as_deref()
                 .is_none_or(|binding| binding == status.plan.policy.as_str())
+            // A receipt executed against a different Git identity than the
+            // workspace's current one does not establish the current input, even
+            // when the code and design revisions are unchanged.
+            && git_binding.is_none_or(|binding| {
+                record.execution_git_binding.as_ref() == Some(binding)
+                    && record
+                        .execution_receipt
+                        .as_ref()
+                        .is_none_or(|receipt| receipt.execution_git_binding.as_ref() == Some(binding))
+            })
             && reuse_chain_is_observable(record, evidence)
     }) {
         let Some(receipt) = record.execution_receipt.as_ref().filter(|receipt| {

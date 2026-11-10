@@ -144,6 +144,7 @@ fn evidence_bound_to_another_policy_cannot_satisfy_the_plan() {
         status,
         &revision,
         std::slice::from_ref(&foreign),
+        None,
     )
     .unwrap();
     assert_ne!(
@@ -152,4 +153,94 @@ fn evidence_bound_to_another_policy_cannot_satisfy_the_plan() {
         "evidence produced under another policy must not satisfy this plan"
     );
     assert!(!result.ready);
+}
+
+#[test]
+fn evidence_from_another_git_identity_cannot_satisfy_the_plan() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let runtime = SoftwareIntelligenceRuntime::default();
+    let revision = runtime.current_revision(&workspace).unwrap();
+    let plan = runtime
+        .create_plan_for_risk("git", &workspace, RiskLevel::Low)
+        .unwrap();
+    let binding = RequiredVerificationCheck::from_command(
+        "rust-check",
+        "cargo",
+        &["check".into(), "--locked".into()],
+        ".",
+        "workspace",
+    );
+    let mut state = VerificationState::default();
+    state
+        .restore_workspace(verification_store::load(&workspace).unwrap().unwrap())
+        .unwrap();
+    let mut status = state.status(&plan.id).unwrap();
+    status.plan.required_checks = Some(vec![binding.clone()]);
+    status.plan.deterministic_level = "quick".into();
+    status.blockers.clear();
+
+    let make = |head: &str| {
+        let mut record = Evidence::new(
+            "EV-GIT".into(),
+            format!("change:{}", revision.code),
+            EvidenceKind::Verification,
+            "verify_project".into(),
+            revision.clone(),
+            EvidenceResult::Pass,
+            Confidence::Deterministic,
+        )
+        .unwrap();
+        record.policy = Some("deterministic/quick/v2".into());
+        record.execution_git_binding = Some(crate::verification::change::ExecutionGitBinding {
+            repository: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .into(),
+            head_sha: head.into(),
+            tree_sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+            dirty: false,
+            index_fingerprint:
+                "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
+        });
+        record.execution_receipt = Some(crate::evidence::VerificationExecutionReceipt {
+            execution_git_binding: record.execution_git_binding.clone(),
+            schema_version: 1,
+            level: "quick".into(),
+            required_checks: vec![binding.clone()],
+            checks: vec![crate::evidence::VerificationCheckReceipt {
+                execution: crate::evidence::VerificationCheckExecution::Executed,
+                check: binding.clone(),
+                result: EvidenceResult::Pass,
+                reused_from: None,
+            }],
+            skipped_checks: vec![],
+        });
+        record
+    };
+    let current = make(&"a".repeat(40));
+    let other = make(&"d".repeat(40));
+    let with_current = SoftwareIntelligenceRuntime::verification_status_from_snapshot(
+        status.clone(),
+        &revision,
+        std::slice::from_ref(&current),
+        current.execution_git_binding.as_ref(),
+    )
+    .unwrap();
+    assert_eq!(
+        with_current.deterministic_result,
+        Some(EvidenceResult::Pass),
+        "evidence bound to the workspace's current Git identity stays current"
+    );
+    let with_other = SoftwareIntelligenceRuntime::verification_status_from_snapshot(
+        status,
+        &revision,
+        std::slice::from_ref(&other),
+        current.execution_git_binding.as_ref(),
+    )
+    .unwrap();
+    assert_ne!(
+        with_other.deterministic_result,
+        Some(EvidenceResult::Pass),
+        "evidence from another Git identity must not satisfy the plan"
+    );
+    assert!(!with_other.ready);
 }

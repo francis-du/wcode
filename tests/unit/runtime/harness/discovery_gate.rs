@@ -182,7 +182,7 @@ async fn partial_discovery_cannot_pass_native_verification() {
                 .iter()
                 .any(|check| check.check.id == blocker.id && check.result == EvidenceResult::Fail));
             let status = harness
-                .verification_status("discovery", &workspace, &plan.id)
+                .verification_status("discovery", &workspace, &plan.id, None)
                 .unwrap();
             assert!(!status.ready);
             assert_eq!(
@@ -232,7 +232,7 @@ async fn partial_discovery_cannot_pass_native_verification() {
             .iter()
             .any(|check| check.id == "profile-discovery-completeness"));
         let recovered_status = harness
-            .verification_status("discovery", &workspace, &new_plan.id)
+            .verification_status("discovery", &workspace, &new_plan.id, None)
             .unwrap();
         assert_eq!(
             recovered_status.deterministic_result,

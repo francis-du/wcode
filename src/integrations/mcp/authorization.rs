@@ -254,7 +254,7 @@ pub(super) async fn human_decision_tool(
             anyhow::bail!("complete repository revision is required for operator approval");
         }
         let plan = match action.as_str() {
-            "verification" => serde_json::to_value(harness.verification_status(&workspace_id, &workspace, &plan_id)?.plan)?,
+            "verification" => serde_json::to_value(harness.verification_status(&workspace_id, &workspace, &plan_id, None)?.plan)?,
             "reconciliation" => serde_json::to_value(harness.reconciliation_status(&workspace, &plan_id)?)?,
             _ => anyhow::bail!("unsupported human decision"),
         };

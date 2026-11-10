@@ -537,6 +537,7 @@ pub(super) fn coverage_status(
         status,
         &runtime.current_revision(workspace).unwrap(),
         evidence,
+        None,
     )
     .unwrap()
 }
@@ -607,6 +608,7 @@ fn required_check_missing_skipped_or_changed_signature_blocks_ready() {
         status.clone(),
         &revision,
         &produced,
+        None,
     )
     .unwrap();
     assert!(!missing.ready);
@@ -622,9 +624,10 @@ fn required_check_missing_skipped_or_changed_signature_blocks_ready() {
     let skipped = runtime
         .record_verification_report("demo", &workspace, &revision, &report)
         .unwrap();
-    let skipped =
-        SoftwareIntelligenceRuntime::verification_status_from_snapshot(status, &revision, &skipped)
-            .unwrap();
+    let skipped = SoftwareIntelligenceRuntime::verification_status_from_snapshot(
+        status, &revision, &skipped, None,
+    )
+    .unwrap();
     assert!(!skipped.ready);
     assert_eq!(
         skipped.deterministic_result,
@@ -749,9 +752,10 @@ fn legacy_plan_without_required_checks_remains_readable_but_unknown() {
     legacy.as_object_mut().unwrap().remove("required_checks");
     status.plan = serde_json::from_value(legacy).unwrap();
     status.blockers.clear();
-    let status =
-        SoftwareIntelligenceRuntime::verification_status_from_snapshot(status, &revision, &proof)
-            .unwrap();
+    let status = SoftwareIntelligenceRuntime::verification_status_from_snapshot(
+        status, &revision, &proof, None,
+    )
+    .unwrap();
     assert!(status.plan.required_checks.is_none());
     assert_eq!(status.deterministic_result, None);
     assert!(!status.ready);
@@ -841,8 +845,13 @@ fn satisfied_identity_snapshot(
         proof.push(record);
     }
     status.blockers.clear();
-    SoftwareIntelligenceRuntime::verification_status_from_snapshot(status, current_revision, &proof)
-        .unwrap()
+    SoftwareIntelligenceRuntime::verification_status_from_snapshot(
+        status,
+        current_revision,
+        &proof,
+        None,
+    )
+    .unwrap()
 }
 
 #[test]

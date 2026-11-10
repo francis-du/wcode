@@ -138,61 +138,19 @@ async fn convention_status_tool(state: &AppState, args: &Value) -> AnyResult<Val
     .await
 }
 
-pub(super) fn handles(name: &str) -> bool {
-    matches!(
-        name,
-        "workspace_info"
-            | "convention_status"
-            | "scope_status"
-            | "design_status"
-            | "design_init"
-            | "software_graph"
-            | "graph_provider_import"
-            | "graph_provider_status"
-            | "semantic_provider_status"
-            | "semantic_provider_install"
-            | "semantic_provider_refresh"
-            | "semantic_navigation"
-            | "graph_history"
-            | "graph_query"
-            | "graph_diff"
-            | "traceability_status"
-            | "software_context"
-            | "agent_context"
-            | "open_observatory"
-            | "execution_status"
-            | "execution_policy_status"
-            | "execution_propose"
-            | "execution_steer"
-            | "execution_handoff"
-            | "worklist_status"
-            | "worklist_update"
-            | "worklist_claim"
-            | "worklist_submit"
-            | "semantic_status"
-            | "semantic_query"
-            | "semantic_record"
-            | "semantic_confirm"
-            | "semantic_retire"
-            | "evidence_status"
-            | "verification_claim"
-            | "verification_submit"
-            | "verification_executor_status"
-            | "language_quality_status"
-            | "language_quality_run"
-            | "verification_execute_stages"
-            | "verification_stage_submit"
-            | "verification_approve"
-            | "verification_status"
-            | "verification_history"
-            | "reconciliation_status"
-            | "reconciliation_history"
-            | "reconciliation_approve"
-            | "reconciliation_execution_status"
-            | "reconciliation_claim"
-            | "reconciliation_submit"
-            | "reconciliation_retry"
-    )
+#[path = "intelligence_handles.rs"]
+pub(super) mod handles_catalog;
+pub(super) use handles_catalog::handles;
+
+async fn workspace_git_binding(
+    harness: &ToolHarness,
+    workspace: &Workspace,
+) -> Option<crate::verification::change::ExecutionGitBinding> {
+    harness
+        .execution_git_binding(workspace)
+        .await
+        .ok()
+        .flatten()
 }
 
 pub(super) async fn call(
@@ -838,9 +796,10 @@ pub(super) async fn call(
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let plan_id = required_string(args, "plan_id")?.to_owned();
             let harness = state.harness.clone();
+            let git_binding = workspace_git_binding(&harness, &workspace).await;
             run_blocking(move || {
                 harness
-                    .verification_status(&workspace_id, &workspace, &plan_id)
+                    .verification_status(&workspace_id, &workspace, &plan_id, git_binding.as_ref())
                     .and_then(|status| serde_json::to_value(status).map_err(Into::into))
             })
             .await
@@ -849,9 +808,10 @@ pub(super) async fn call(
             let (workspace_id, workspace) = selected_workspace(state, args)?;
             let limit = bounded_usize_arg(args, "limit", 20, 1, 100)?;
             let harness = state.harness.clone();
+            let git_binding = workspace_git_binding(&harness, &workspace).await;
             run_blocking(move || {
                 harness
-                    .verification_history(&workspace_id, &workspace, limit)
+                    .verification_history(&workspace_id, &workspace, limit, git_binding.as_ref())
                     .and_then(|history| serde_json::to_value(history).map_err(Into::into))
             })
             .await

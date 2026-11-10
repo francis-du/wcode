@@ -258,13 +258,13 @@ fn verification_approval_cannot_authorize_another_plan_or_stale_revision() {
         .unwrap();
     assert!(
         runtime
-            .verification_status("demo", &workspace, &first.id)
+            .verification_status("demo", &workspace, &first.id, None)
             .unwrap()
             .human_approval
     );
     assert!(
         !runtime
-            .verification_status("demo", &workspace, &second.id)
+            .verification_status("demo", &workspace, &second.id, None)
             .unwrap()
             .human_approval
     );
@@ -327,7 +327,7 @@ fn legacy_revision_only_human_approval_remains_advisory() {
     legacy.policy = Some(format!("{}/human-approval", plan.policy));
     evidence_store::persist(&workspace, &legacy).unwrap();
     let status = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert!(!status.human_approval);
     assert!(status
@@ -476,6 +476,7 @@ async fn legacy_stage_authority_cannot_satisfy_an_otherwise_ready_plan() {
             base.clone(),
             &revision,
             records,
+            None,
         )
         .unwrap()
     };
@@ -485,7 +486,7 @@ async fn legacy_stage_authority_cannot_satisfy_an_otherwise_ready_plan() {
     assert_eq!(control.deterministic_result, Some(EvidenceResult::Pass));
     assert!(
         SoftwareIntelligenceRuntime::default()
-            .verification_status("demo", &workspace, &plan.id)
+            .verification_status("demo", &workspace, &plan.id, None)
             .unwrap()
             .ready
     );
@@ -605,7 +606,7 @@ fn generic_approval_labels_and_full_plan_digest_are_not_operator_authority() {
         Some(verification_snapshot::human_approval_policy(&plan).unwrap())
     );
     let unknown = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert!(!unknown.human_approval);
     assert!(unknown.blockers.contains(&"human-approval-required".into()));
@@ -620,7 +621,7 @@ fn generic_approval_labels_and_full_plan_digest_are_not_operator_authority() {
         .unwrap();
     assert_eq!(authorized.authority, EvidenceAuthority::LocalOperator);
     let current = runtime
-        .verification_status("demo", &workspace, &plan.id)
+        .verification_status("demo", &workspace, &plan.id, None)
         .unwrap();
     assert!(current.human_approval);
     assert!(

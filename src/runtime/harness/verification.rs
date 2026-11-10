@@ -244,3 +244,34 @@ mod discovery_gate;
 #[cfg(test)]
 #[path = "../../../tests/unit/runtime/harness/verification_turn.rs"]
 mod phase_turn_tests;
+
+impl ToolHarness {
+    /// Status for one plan, evaluated against an explicit Git identity so a
+    /// receipt from a moved index or HEAD cannot read as the current input.
+    pub fn verification_status(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        plan_id: &str,
+        git_binding: Option<&crate::verification::change::ExecutionGitBinding>,
+    ) -> Result<VerificationStatus> {
+        let status =
+            self.intelligence
+                .verification_status(workspace_id, workspace, plan_id, git_binding)?;
+        if status.plan.workspace != workspace_id {
+            bail!("verification plan does not belong to the selected workspace");
+        }
+        Ok(status)
+    }
+
+    pub fn verification_history(
+        &self,
+        workspace_id: &str,
+        workspace: &Workspace,
+        limit: usize,
+        git_binding: Option<&crate::verification::change::ExecutionGitBinding>,
+    ) -> Result<Vec<VerificationStatus>> {
+        self.intelligence
+            .verification_history(workspace_id, workspace, limit, git_binding)
+    }
+}

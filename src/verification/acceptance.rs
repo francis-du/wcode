@@ -447,6 +447,7 @@ pub fn evaluate_acceptance(input: AcceptanceInput<'_>) -> Result<ChangeAcceptanc
                 id,
                 input.revision,
                 &usable,
+                input.git.binding.as_ref(),
             )?)
         }
         None => {

@@ -321,6 +321,7 @@ fn imported_ci_receipt_cannot_satisfy_a_stage_or_reach_acceptance() {
         PLAN,
         &revision,
         std::slice::from_ref(&evidence),
+        None,
     )
     .unwrap();
     assert!(!status.stage_results.contains_key("property"));
