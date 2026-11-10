@@ -499,6 +499,7 @@ impl TaskMonitor {
         };
         match tool {
             "design_status" => {
+                stats.design_observed = true;
                 stats.design_state = Some(if value["valid"].as_bool() == Some(true) {
                     "valid".to_owned()
                 } else if value["initialized"].as_bool() == Some(true) {
@@ -510,10 +511,12 @@ impl TaskMonitor {
                 stats.components = value["components"].as_u64().unwrap_or(0);
             }
             "convention_status" => {
+                stats.convention_observed = true;
                 stats.policy_errors = value["errors"].as_u64().unwrap_or(0);
                 stats.policy_warnings = value["warnings"].as_u64().unwrap_or(0);
             }
             "scope_status" => {
+                stats.scope_observed = true;
                 stats.scope_source_files = value["source_files"].as_u64().unwrap_or(0);
                 stats.scope_mapped_files = value["mapped_files"].as_u64().unwrap_or(0);
                 stats.scope_unmapped_files = stats

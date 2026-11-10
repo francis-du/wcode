@@ -457,7 +457,8 @@ pub(super) fn render_intelligence_overlay(
                     language.tr("DESIGN"),
                     format!(
                         "{design} · {} req · {} cmp",
-                        stats.requirements, stats.components
+                        observed_count(stats.requirements, stats.design_observed, language),
+                        observed_count(stats.components, stats.design_observed, language)
                     ),
                     if design == "valid" { SUCCESS } else { WARNING },
                 ),
@@ -465,7 +466,8 @@ pub(super) fn render_intelligence_overlay(
                     language.tr("POLICY"),
                     format!(
                         "{} errors · {} warnings",
-                        stats.policy_errors, stats.policy_warnings
+                        observed_count(stats.policy_errors, stats.convention_observed, language),
+                        observed_count(stats.policy_warnings, stats.convention_observed, language)
                     ),
                     if stats.policy_errors > 0 {
                         DANGER
@@ -490,9 +492,9 @@ pub(super) fn render_intelligence_overlay(
                     language.tr("SCOPES"),
                     format!(
                         "{} mapped / {} source · {} unmapped",
-                        stats.scope_mapped_files,
-                        stats.scope_source_files,
-                        stats.scope_unmapped_files
+                        observed_count(stats.scope_mapped_files, stats.scope_observed, language),
+                        observed_count(stats.scope_source_files, stats.scope_observed, language),
+                        observed_count(stats.scope_unmapped_files, stats.scope_observed, language)
                     ),
                     if stats.scope_unmapped_files == 0 && stats.scope_source_files > 0 {
                         SUCCESS
@@ -626,7 +628,8 @@ pub(super) fn render_intelligence_overlay(
             language.tr("DESIGN"),
             format!(
                 "{design} · {} requirements · {} components",
-                stats.requirements, stats.components
+                observed_count(stats.requirements, stats.design_observed, language),
+                observed_count(stats.components, stats.design_observed, language)
             ),
             if design == "valid" { SUCCESS } else { WARNING },
         ),
@@ -634,7 +637,9 @@ pub(super) fn render_intelligence_overlay(
             language.tr("SCOPES"),
             format!(
                 "{} mapped / {} source · {} unmapped",
-                stats.scope_mapped_files, stats.scope_source_files, stats.scope_unmapped_files
+                observed_count(stats.scope_mapped_files, stats.scope_observed, language),
+                observed_count(stats.scope_source_files, stats.scope_observed, language),
+                observed_count(stats.scope_unmapped_files, stats.scope_observed, language)
             ),
             if stats.scope_unmapped_files == 0 && stats.scope_source_files > 0 {
                 SUCCESS
@@ -720,7 +725,8 @@ pub(super) fn render_intelligence_overlay(
             language.tr("POLICY"),
             format!(
                 "{} errors · {} warnings",
-                stats.policy_errors, stats.policy_warnings
+                observed_count(stats.policy_errors, stats.convention_observed, language),
+                observed_count(stats.policy_warnings, stats.convention_observed, language)
             ),
             if stats.policy_errors > 0 {
                 DANGER

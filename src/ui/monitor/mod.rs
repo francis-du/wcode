@@ -255,6 +255,10 @@ struct IntelligenceStats {
     project_revision: Option<Value>,
     project_observed_at: Option<Instant>,
     design_state: Option<String>,
+    // Each group below is only measurable once its own event was observed.
+    convention_observed: bool,
+    design_observed: bool,
+    scope_observed: bool,
     policy_errors: u64,
     policy_warnings: u64,
     requirements: u64,

@@ -109,3 +109,59 @@ fn semantic_and_provider_groups_stay_unknown_until_observed() {
     let zh = super::monitor_intelligence::observed_count(0, false, UiLanguage::ZhCn);
     assert_eq!(zh, "未知");
 }
+
+#[test]
+fn observation_groups_record_whether_their_event_arrived() {
+    let monitor = TaskMonitor::new(["api".to_owned()]);
+    let snapshot = monitor.snapshot();
+    let stats = &snapshot.intelligence["api"];
+    assert!(!stats.design_observed);
+    assert!(!stats.convention_observed);
+    assert!(!stats.scope_observed);
+    assert!(!stats.semantic_observed);
+    assert!(!stats.provider_observed);
+    assert!(!stats.session_observed);
+    assert!(!stats.graph_provider_observed);
+
+    monitor.record_intelligence_result(
+        "api",
+        "design_status",
+        &serde_json::json!({"valid": false, "initialized": false, "requirements": 3, "components": 2}),
+    );
+    monitor.record_intelligence_result(
+        "api",
+        "convention_status",
+        &serde_json::json!({"errors": 1, "warnings": 2}),
+    );
+    monitor.record_intelligence_result(
+        "api",
+        "scope_status",
+        &serde_json::json!({"source_files": 9, "mapped_files": 7}),
+    );
+    monitor.record_intelligence_result(
+        "api",
+        "semantic_status",
+        &serde_json::json!({"confirmed": 4, "candidates": 5}),
+    );
+    monitor.record_intelligence_result("api", "semantic_provider_status", &serde_json::json!([]));
+    monitor.record_intelligence_result(
+        "api",
+        "semantic_session_status",
+        &serde_json::json!({"sessions": 1, "documents": 1, "starts": 1, "requests": 1}),
+    );
+    monitor.record_intelligence_result("api", "graph_provider_status", &serde_json::json!([]));
+
+    let snapshot = monitor.snapshot();
+    let stats = &snapshot.intelligence["api"];
+    assert!(stats.design_observed && stats.convention_observed && stats.scope_observed);
+    assert!(
+        stats.semantic_observed
+            && stats.provider_observed
+            && stats.session_observed
+            && stats.graph_provider_observed
+    );
+    assert_eq!(stats.requirements, 3);
+    assert_eq!(stats.policy_errors, 1);
+    assert_eq!(stats.scope_source_files, 9);
+    assert_eq!(stats.semantic_confirmed, 4);
+}

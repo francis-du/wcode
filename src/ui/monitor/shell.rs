@@ -311,9 +311,12 @@ fn render_engineering_pulse(
             .unwrap_or_else(unknown)
     );
     let model = format!(
-        "policy {}/{} · {} · {}n/{}e · {}",
-        stats.policy_errors,
-        stats.policy_warnings,
+        "policy {} · {} · {}n/{}e · {}",
+        if stats.convention_observed {
+            format!("{}/{}", stats.policy_errors, stats.policy_warnings)
+        } else {
+            unknown()
+        },
         stats.graph_precision.as_deref().unwrap_or("syntax"),
         stats
             .graph_nodes
