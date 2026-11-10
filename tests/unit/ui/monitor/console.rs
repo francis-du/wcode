@@ -320,7 +320,7 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
     assert_eq!(latest.checkpoint, "agent_context");
     assert_eq!(latest.status, "active");
     assert_eq!(latest.model.as_deref(), Some("jev-latest"));
-    assert_eq!(latest.choice_disagreements, 1);
+    assert_eq!(latest.choice_disagreements, Some(1));
 
     let activity = monitor.observatory_activity("web");
     let jev = &activity["agent_context"]["decision_runtime"]["jev"];
@@ -452,6 +452,38 @@ fn agent_context_metrics_preserve_latest_jev_runtime_telemetry() {
     assert_eq!(jev["calls"]["observed"], 4);
     assert_eq!(jev["calls"]["successful"], 3);
     assert_eq!(jev["calls"]["degraded"], 1);
+}
+
+#[test]
+fn a_checkpoint_that_never_compared_reports_no_comparison_and_no_call() {
+    let monitor = TaskMonitor::new(["web".to_owned()]);
+    monitor.record_jev_decision(
+        "web",
+        "post_edit_review",
+        &serde_json::json!({
+            "provider": "jev",
+            "checkpoint": "post_edit_review",
+            "status": "disabled",
+            "authority": "increase_only_assist",
+            "baseline_next_action": "verify_project",
+            "candidate_next_action": null,
+            "guidance": [],
+            "comparison": null
+        }),
+    );
+    let snapshot = monitor.snapshot();
+    let latest = snapshot.workspaces["web"].jev_latest.as_ref().unwrap();
+    assert!(!latest.call_observed);
+    assert!(latest.choice_disagreements.is_none());
+    assert!(latest.shared_signals.is_none());
+    let activity = monitor.observatory_activity("web");
+    let jev = &activity["agent_context"]["decision_runtime"]["jev"];
+    assert_eq!(jev["status"], "disabled");
+    // Absent must stay absent: a checkpoint that never ran a comparison has no
+    // comparison, and one that never made a call has no elapsed time.
+    assert!(jev["comparison"].is_null());
+    assert!(jev["call"].is_null());
+    assert!(jev["calls"]["avg_elapsed_ms"].is_null());
 }
 
 #[test]

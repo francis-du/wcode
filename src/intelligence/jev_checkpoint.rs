@@ -117,6 +117,17 @@ fn checkpoint_telemetry(
     candidate_next_action: Option<&str>,
     guidance: Vec<String>,
 ) -> Value {
+    // A comparison exists only when the model produced a candidate next action.
+    // Reporting zeros for a checkpoint that never ran one would read as "we
+    // compared and found no disagreement".
+    let comparison = candidate_next_action.map(|candidate| {
+        json!({
+            "shared_signals": 0,
+            "choice_disagreements": usize::from(candidate != baseline_next_action),
+            "safety_policy_violations": 0,
+            "shape_mismatches": 0
+        })
+    });
     json!({
         "provider": "jev",
         "checkpoint": checkpoint,
@@ -129,14 +140,7 @@ fn checkpoint_telemetry(
             "id": RUNTIME_CHECKPOINT_QUESTION_SET_ID,
             "version": RUNTIME_CHECKPOINT_QUESTION_SET_VERSION
         },
-        "comparison": {
-            "shared_signals": 0,
-            "choice_disagreements": usize::from(
-                candidate_next_action.is_some_and(|candidate| candidate != baseline_next_action)
-            ),
-            "safety_policy_violations": 0,
-            "shape_mismatches": 0
-        },
+        "comparison": comparison,
         "guidance": guidance,
         "fallback": "deterministic"
     })

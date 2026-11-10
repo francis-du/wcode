@@ -193,10 +193,13 @@ struct JevRuntimeStats {
     baseline_next_action: Option<String>,
     candidate_next_action: Option<String>,
     guidance: Vec<String>,
-    shared_signals: u64,
-    choice_disagreements: u64,
-    safety_policy_violations: u64,
-    shape_mismatches: u64,
+    // Absent means no comparison was performed for this observation, which is
+    // not the same as a measured zero.
+    shared_signals: Option<u64>,
+    choice_disagreements: Option<u64>,
+    safety_policy_violations: Option<u64>,
+    shape_mismatches: Option<u64>,
+    call_observed: bool,
     call_request_bytes: u64,
     call_response_bytes: u64,
     call_elapsed_ms: u64,

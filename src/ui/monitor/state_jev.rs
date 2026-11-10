@@ -59,23 +59,35 @@ pub(super) fn jev_runtime_json(stats: &WorkspaceStats, now: Instant) -> Option<V
             "baseline_next_action": jev.baseline_next_action,
             "candidate_next_action": jev.candidate_next_action,
             "guidance": jev.guidance,
-            "comparison": {
-                "shared_signals": jev.shared_signals,
-                "choice_disagreements": jev.choice_disagreements,
-                "safety_policy_violations": jev.safety_policy_violations,
-                "shape_mismatches": jev.shape_mismatches,
-            },
-            "call": {
-                "request_bytes": jev.call_request_bytes,
-                "response_bytes": jev.call_response_bytes,
-                "elapsed_ms": jev.call_elapsed_ms,
-                "tokens": {
-                    "input": latest_input_tokens,
-                    "output": latest_output_tokens,
-                    "total": latest_total_tokens,
-                    "source": latest_token_source,
-                }
-            },
+            // All four absent means no comparison was performed; an object of
+            // nulls would still read as a comparison that measured nothing.
+            "comparison": (jev.shared_signals.is_some()
+                || jev.choice_disagreements.is_some()
+                || jev.safety_policy_violations.is_some()
+                || jev.shape_mismatches.is_some())
+            .then(|| {
+                serde_json::json!({
+                    "shared_signals": jev.shared_signals,
+                    "choice_disagreements": jev.choice_disagreements,
+                    "safety_policy_violations": jev.safety_policy_violations,
+                    "shape_mismatches": jev.shape_mismatches,
+                })
+            }),
+            // No call observation means no elapsed time was measured; an
+            // omitted object keeps that distinct from a measured zero.
+            "call": jev.call_observed.then(|| {
+                serde_json::json!({
+                    "request_bytes": jev.call_request_bytes,
+                    "response_bytes": jev.call_response_bytes,
+                    "elapsed_ms": jev.call_elapsed_ms,
+                    "tokens": {
+                        "input": latest_input_tokens,
+                        "output": latest_output_tokens,
+                        "total": latest_total_tokens,
+                        "source": latest_token_source,
+                    }
+                })
+            }),
             "calls": {
                 "observed": stats.jev_observed,
                 "successful": stats.jev_successful,

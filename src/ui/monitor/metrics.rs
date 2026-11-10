@@ -87,8 +87,10 @@ impl TaskMonitor {
         let call_total_tokens = telemetry
             .pointer("/call/tokens/total")
             .and_then(Value::as_u64);
+        let call_observed = telemetry.get("call").is_some();
         let latest = JevRuntimeStats {
             observed_at: Instant::now(),
+            call_observed,
             checkpoint: if checkpoint.is_empty() {
                 "unknown".to_owned()
             } else {
@@ -121,20 +123,16 @@ impl TaskMonitor {
             guidance,
             shared_signals: telemetry
                 .pointer("/comparison/shared_signals")
-                .and_then(Value::as_u64)
-                .unwrap_or_default(),
+                .and_then(Value::as_u64),
             choice_disagreements: telemetry
                 .pointer("/comparison/choice_disagreements")
-                .and_then(Value::as_u64)
-                .unwrap_or_default(),
+                .and_then(Value::as_u64),
             safety_policy_violations: telemetry
                 .pointer("/comparison/safety_policy_violations")
-                .and_then(Value::as_u64)
-                .unwrap_or_default(),
+                .and_then(Value::as_u64),
             shape_mismatches: telemetry
                 .pointer("/comparison/shape_mismatches")
-                .and_then(Value::as_u64)
-                .unwrap_or_default(),
+                .and_then(Value::as_u64),
             call_request_bytes,
             call_response_bytes,
             call_elapsed_ms,

@@ -164,10 +164,27 @@ async function main() {
     s.requests[0].reject(new Error('revision unavailable'));await poll;
     assert.equal(s.run('projectRefreshes'),0);assert.equal(s.run('state.syncError'),true);
   });
+  await test(24,'a checkpoint that never compared does not render fabricated zeros',async()=>{
+    const jev={status:'disabled',model:null,authority:'increase_only_assist',
+      question_set:{id:'wcode.runtime_checkpoint',version:1},
+      baseline_next_action:'verify_project',candidate_next_action:null,guidance:[],
+      comparison:null,call:null,
+      calls:{observed:1,successful:0,degraded:0,disabled:1,by_checkpoint:{post_edit_review:1},
+        metered:0,request_bytes:0,response_bytes:0,elapsed_ms:0,avg_elapsed_ms:null,
+        tokens:{observations:0,estimated_observations:0,input:0,output:0,total:0,source:'unavailable'}}};
+    const s=sandbox();
+    s.context.fixture={workspace:'A',activity:{available:true,recent:[],active:0,queued:0,completed:0,failed:0,recent_truncated:false,agent_context:{decision_runtime:{jev}}},
+      harness:{software_intelligence:{decision_plane:{authority:'increase_only_assist'}}}};
+    s.run('state.activitySnapshot=fixture;state.project=fixture;renderActivity();');
+    const html=s.node('#resourceStatus').innerHTML;
+    assert.ok(!/0 diff · 0 safety · 0 shape/.test(html),'an unperformed comparison must not read as measured zeros');
+    assert.ok(/Not compared/.test(html));
+    assert.ok(!/avg 0 s/.test(html),'an idle session has no measured average elapsed time');
+  });
   const report={suite:'observatory-audit',results};
   fs.mkdirSync(path.join(process.argv[2],'target'),{recursive:true});
   fs.writeFileSync(path.join(process.argv[2],'target/wcode-audit.json'),JSON.stringify(report,null,2));
   console.log(JSON.stringify(report,null,2));
-  assert.equal(results.length,24);assert.ok(results.every(item=>item.passed),'audit scenarios failed');
+  assert.equal(results.length,25);assert.ok(results.every(item=>item.passed),'audit scenarios failed');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

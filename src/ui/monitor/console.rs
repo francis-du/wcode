@@ -852,14 +852,29 @@ fn render_provider_console(
                 workspace_stats.jev_degraded,
                 workspace_stats.jev_disabled
             )));
-            lines.push(Line::from(format!(
-                "Last call {}ms · request {}B · response {}B",
-                jev.call_elapsed_ms, jev.call_request_bytes, jev.call_response_bytes
-            )));
-            lines.push(Line::from(format!(
-                "Choice disagreements {} · safety violations {} · shape mismatches {}",
-                jev.choice_disagreements, jev.safety_policy_violations, jev.shape_mismatches
-            )));
+            if jev.call_observed {
+                lines.push(Line::from(format!(
+                    "Last call {}ms · request {}B · response {}B",
+                    jev.call_elapsed_ms, jev.call_request_bytes, jev.call_response_bytes
+                )));
+            } else {
+                lines.push(Line::from("Last call not observed."));
+            }
+            let comparison = [
+                jev.choice_disagreements,
+                jev.safety_policy_violations,
+                jev.shape_mismatches,
+            ];
+            if comparison.iter().all(Option::is_some) {
+                lines.push(Line::from(format!(
+                    "Choice disagreements {} · safety violations {} · shape mismatches {}",
+                    jev.choice_disagreements.unwrap_or_default(),
+                    jev.safety_policy_violations.unwrap_or_default(),
+                    jev.shape_mismatches.unwrap_or_default()
+                )));
+            } else {
+                lines.push(Line::from("Choice comparison not performed."));
+            }
         } else {
             lines.push(Line::from("Jev observation unavailable."));
         }
