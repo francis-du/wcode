@@ -77,6 +77,27 @@ async function main() {
     s.run('state.activitySnapshot=fixture;renderActivity();');assert.ok(!s.node('#resourceStatus').innerHTML.includes('>0 MiB<'));
     s.run('state.activitySnapshot.resources.limits.resident_memory_bytes=0;renderActivity();');assert.ok(s.node('#resourceStatus').innerHTML.includes('>0 MiB<'));
   });
+  await test(11,'resource history shows measured samples and marks skipped ticks',async()=>{
+    const points=[];for(let i=0;i<6;i++)points.push({elapsed_ms:i*500,cpu_percent:i*10,sustained_cpu_percent:i*8,resident_memory_bytes:1048576*(i+1),memory_pressure:'normal',child_queue_waiting:i,probe_queue_waiting:0});
+    points.push({elapsed_ms:6000,cpu_percent:60,sustained_cpu_percent:50,resident_memory_bytes:1048576*7,memory_pressure:'elevated',child_queue_waiting:6,probe_queue_waiting:1});
+    const s=sandbox();s.context.fixture={workspace:'A',activity:{available:true,recent:[]},resources:{limits:{resident_memory_bytes:1048576,sample_interval_ms:500,history:points}}};
+    s.run('state.activitySnapshot=fixture;renderActivity();');
+    const html=s.node('#resourceStatus').innerHTML;
+    assert.ok(html.includes('Resource history'),'the measured series must be labelled');
+    assert.ok(html.includes('1 sampling gap'),'a skipped tick must not be hidden');
+    assert.ok(html.includes('CPU peak 60%'),'peaks carry their unit');
+    assert.ok(html.includes('Memory peak 7 MiB'),'memory keeps its unit');
+    assert.ok(html.includes('Queue wait peak 6'));
+    assert.ok(/[▁▂▃▄▅▆▇█]/.test(html),'measured points must render as a series, not all gaps');
+    assert.ok(!html.includes('NaN'),'missing measurements must not render as NaN');
+  });
+  await test(11,'a short or absent resource history stays absent rather than empty',async()=>{
+    for(const history of [[],[{elapsed_ms:0,cpu_percent:1}]]){
+      const s=sandbox();s.context.fixture={workspace:'A',activity:{available:true,recent:[]},resources:{limits:{resident_memory_bytes:0,sample_interval_ms:500,history}}};
+      s.run('state.activitySnapshot=fixture;renderActivity();');
+      assert.ok(!s.node('#resourceStatus').innerHTML.includes('Resource history'));
+    }
+  });
   await test(12,'explicitly unavailable activity never looks idle',async()=>{
     const s=sandbox();s.context.fixture={activity:{available:false,recent:[]}};s.run('state.activitySnapshot=fixture;renderActivity();');
     assert.ok(s.node('#activity').innerHTML.includes('unavailable'));
@@ -147,6 +168,6 @@ async function main() {
   fs.mkdirSync(path.join(process.argv[2],'target'),{recursive:true});
   fs.writeFileSync(path.join(process.argv[2],'target/wcode-audit.json'),JSON.stringify(report,null,2));
   console.log(JSON.stringify(report,null,2));
-  assert.equal(results.length,22);assert.ok(results.every(item=>item.passed),'audit scenarios failed');
+  assert.equal(results.length,24);assert.ok(results.every(item=>item.passed),'audit scenarios failed');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

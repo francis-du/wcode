@@ -59,6 +59,10 @@
 .activity-row strong{font-weight:680}.activity-change-open{margin-top:5px}.activity-duration{display:flex;gap:11px;justify-content:flex-end}.activity-duration span{display:inline!important}
 .resource-counts{border:1px solid var(--line);border-radius:15px;overflow:hidden;background:color-mix(in srgb,var(--surface) 68%,transparent)}
 .resource-counts>*{min-height:78px}.resource-counts strong{font-size:22px}
+.resource-history{display:grid;gap:8px;margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:color-mix(in srgb,var(--surface) 62%,transparent)}
+.resource-history>div{display:grid;grid-template-columns:112px minmax(0,1fr);gap:10px;align-items:baseline}
+.resource-history span{color:var(--muted);font-size:12px}
+.resource-history code{min-width:0;overflow:hidden;font:12px/1.4 var(--font-mono);letter-spacing:.06em;white-space:nowrap}
 
 .runtime-status-grid{gap:10px}.runtime-status-card{min-height:78px;padding:13px 14px;border-radius:14px;background:linear-gradient(145deg,color-mix(in srgb,var(--surface-raised) 91%,transparent),color-mix(in srgb,var(--surface) 80%,transparent));box-shadow:var(--shadow-soft)}
 .runtime-status-card strong{font-size:14px;line-height:1.35}.runtime-status-card span{letter-spacing:.02em}

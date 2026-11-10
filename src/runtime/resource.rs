@@ -11,6 +11,7 @@ use anyhow::{anyhow, bail, Result};
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
@@ -18,6 +19,9 @@ use std::time::{Duration, Instant};
 use tokio::process::{Child, Command};
 use tokio::sync::OwnedSemaphorePermit;
 
+#[path = "resource/history.rs"]
+mod history;
+use history::{CpuBudget, ProcessSample, ResourceSamplePoint};
 #[path = "resource/queue.rs"]
 mod process_queue;
 #[path = "resource/subspace.rs"]
@@ -298,15 +302,13 @@ pub struct ResourceSnapshot {
     pub cache_trims: u64,
     pub sample_count: u64,
     pub last_sample_ms_ago: Option<u64>,
-}
-
-struct CpuBudget {
-    last_refill: Instant,
-    background_credit_seconds: f64,
-    tokens: f64,
+    pub sample_interval_ms: u64,
+    pub history: Vec<ResourceSamplePoint>,
 }
 
 struct Telemetry {
+    started_at: Instant,
+    history: VecDeque<ResourceSamplePoint>,
     previous_sample: Option<ProcessSample>,
     previous_sample_at: Option<Instant>,
     cpu_percent: Option<f64>,
@@ -327,6 +329,8 @@ struct Telemetry {
 impl Default for Telemetry {
     fn default() -> Self {
         Self {
+            started_at: Instant::now(),
+            history: VecDeque::new(),
             previous_sample: None,
             previous_sample_at: None,
             cpu_percent: None,
@@ -344,12 +348,6 @@ impl Default for Telemetry {
             last_sample_at: None,
         }
     }
-}
-
-#[derive(Clone, Copy)]
-struct ProcessSample {
-    cpu_time: Duration,
-    resident_memory_bytes: u64,
 }
 
 #[derive(Default)]
@@ -738,7 +736,9 @@ impl ResourceGovernor {
             telemetry.sample_count = telemetry.sample_count.saturating_add(1);
             telemetry.last_sample_at = Some(now);
         }
-        self.with_process_queues(snapshot_from(self.limits, &telemetry, now))
+        let snapshot = self.with_process_queues(snapshot_from(self.limits, &telemetry, now));
+        history::push_sample(&mut telemetry, &snapshot, now);
+        snapshot
     }
 
     fn snapshot(&self) -> ResourceSnapshot {
@@ -971,6 +971,8 @@ fn snapshot_from(limits: ResourceLimits, telemetry: &Telemetry, now: Instant) ->
         last_sample_ms_ago: telemetry
             .last_sample_at
             .map(|sample| duration_ms(now.saturating_duration_since(sample))),
+        sample_interval_ms: duration_ms(SAMPLE_INTERVAL),
+        history: telemetry.history.iter().cloned().collect(),
     }
 }
 

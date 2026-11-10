@@ -608,6 +608,42 @@ function activityDetailHtml(task) {
   return `<button type="button" class="quiet-action activity-change-open" data-activity-change-path="${esc(target)}">${esc(localized("Inspect changed code", "检查变更代码"))}</button>`;
 }
 
+// The resource ring is a measured time series, not a synthesized curve: every
+// point is a sample the governor actually took, the axis is sample order, and a
+// skipped tick shows as a gap instead of an interpolated value.
+function resourceHistoryHtml(limits) {
+  const points = limits?.history, intervalMs = Number(limits?.sample_interval_ms);
+  if (!Array.isArray(points) || points.length < 2 || !(intervalMs > 0)) return "";
+  const glyphs = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+  const numeric = value => typeof value === "number" && Number.isFinite(value);
+  // Each series is scaled by its configured ceiling, not by the window's own
+  // peak, so a flat line means "well below the limit" rather than "at the top
+  // of whatever this window happened to reach".
+  const spark = (select, ceiling) => {
+    const max = Math.max(Number(ceiling) || 0, 1);
+    return points.map(point => {
+      const value = select(point);
+      return numeric(value)
+        ? glyphs[Math.min(glyphs.length - 1, Math.round((value / max) * (glyphs.length - 1)))]
+        : "·";
+    }).join("");
+  };
+  const peak = select => Math.max(0, ...points.map(select).filter(numeric));
+  const spanMs = points[points.length - 1].elapsed_ms - points[0].elapsed_ms;
+  const gaps = points.slice(1)
+    .filter((point, index) => point.elapsed_ms - points[index].elapsed_ms > intervalMs * 2)
+    .length;
+  const mib = bytes => `${Math.round(bytes / 1048576)} MiB`;
+  const facts = [
+    `${num(points.length)} ${esc(localized("samples", "个样本"))} · ${(spanMs / 1000).toFixed(0)} s`,
+    `${esc(localized("CPU peak", "CPU 峰值"))} ${peak(point => point.cpu_percent).toFixed(0)}%`,
+    `${esc(localized("Memory peak", "内存峰值"))} ${mib(peak(point => point.resident_memory_bytes))}`,
+    `${esc(localized("Queue wait peak", "排队等待峰值"))} ${num(Math.max(peak(point => point.child_queue_waiting), peak(point => point.probe_queue_waiting)))}`,
+  ].join(" · ");
+  const row = (label, series) => `<div><span>${esc(label)}</span><code>${esc(series)}</code></div>`;
+  return `<section class="agent-context-efficiency"><header class="resource-telemetry-head"><strong>${esc(localized("Resource history", "资源历史"))}</strong><span>${esc(localized(`Measured every ${intervalMs} ms; gaps are skipped samples, not interpolated values`, `每 ${intervalMs} ms 实测一次；断点是漏采的样本，不是插值`))}</span></header><div class="resource-history">${row(localized("CPU", "CPU"), spark(point => point.cpu_percent, limits.max_cpu_percent))}${row(localized("Memory", "内存"), spark(point => point.resident_memory_bytes, limits.max_memory_bytes))}${row(localized("Child queue", "重型进程队列"), spark(point => point.child_queue_waiting, limits.child_queue?.limit))}</div><p class="panel-meta">${facts}${gaps ? ` · ${esc(localized(`${gaps} sampling gap(s) in this window`, `本窗口有 ${gaps} 处采样断点`))}` : ""}</p></section>`;
+}
+
 function renderActivity() {
   const snapshot = state.activitySnapshot, activity = snapshot?.activity || state.project?.activity;
   const activityRender = beginActivityJobRender(activity);
@@ -630,7 +666,7 @@ function renderActivity() {
   });
   const limits = snapshot?.resources?.limits;
   const queue = (value, name) => value ? `<div><strong>${num(value.active)} / ${num(value.limit)}</strong><span>${esc(name)} · ${num(value.waiting)} ${esc(localized("waiting", "排队"))}</span></div>` : "";
-  const resources = limits ? `<header class="resource-telemetry-head"><strong>${esc(localized("Runtime capacity", "运行时容量"))}</strong><span>${esc(localized("Shared by all workspaces · reserved permits are not CPU-running tasks", "全部项目共享 · 占用额度不等于正在使用 CPU"))}</span></header><div class="proof-counts resource-counts">${queue(limits.child_queue, localized("Heavy processes", "重型进程"))}${queue(limits.probe_queue, localized("Git probes", "Git 检查"))}<div><strong>${typeof limits.resident_memory_bytes === "number" && Number.isFinite(limits.resident_memory_bytes) && limits.resident_memory_bytes >= 0 ? `${Math.round(limits.resident_memory_bytes / 1048576)} MiB` : "—"}</strong><span>${esc(localized("Resident memory", "进程驻留内存"))}</span></div></div>` : `<div class="empty">${esc(localized("Resource telemetry requires the updated runtime.", "资源遥测需要更新后的运行时。"))}</div>`;
+  const resources = limits ? `<header class="resource-telemetry-head"><strong>${esc(localized("Runtime capacity", "运行时容量"))}</strong><span>${esc(localized("Shared by all workspaces · reserved permits are not CPU-running tasks", "全部项目共享 · 占用额度不等于正在使用 CPU"))}</span></header><div class="proof-counts resource-counts">${queue(limits.child_queue, localized("Heavy processes", "重型进程"))}${queue(limits.probe_queue, localized("Git probes", "Git 检查"))}<div><strong>${typeof limits.resident_memory_bytes === "number" && Number.isFinite(limits.resident_memory_bytes) && limits.resident_memory_bytes >= 0 ? `${Math.round(limits.resident_memory_bytes / 1048576)} MiB` : "—"}</strong><span>${esc(localized("Resident memory", "进程驻留内存"))}</span></div></div>${resourceHistoryHtml(limits)}` : `<div class="empty">${esc(localized("Resource telemetry requires the updated runtime.", "资源遥测需要更新后的运行时。"))}</div>`;
   const harness = snapshot?.harness || {}, intelligence = harness.software_intelligence || {},
     twin = intelligence.engineering_digital_twin, decision = intelligence.decision_plane,
     scan = harness.repository_scanning, observatory = harness.observatory;
