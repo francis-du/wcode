@@ -540,10 +540,12 @@ impl TaskMonitor {
                     value["acceptance_to_verification"]["percent"].as_u64();
             }
             "semantic_status" => {
+                stats.semantic_observed = true;
                 stats.semantic_confirmed = value["confirmed"].as_u64().unwrap_or(0);
                 stats.semantic_candidates = value["candidates"].as_u64().unwrap_or(0);
             }
             "semantic_provider_status" => {
+                stats.provider_observed = true;
                 let providers = value.as_array().cloned().unwrap_or_default();
                 stats.lsp_available = providers
                     .iter()
@@ -597,12 +599,14 @@ impl TaskMonitor {
                     .count() as u64;
             }
             "semantic_session_status" => {
+                stats.session_observed = true;
                 stats.lsp_sessions = value["sessions"].as_u64().unwrap_or(0);
                 stats.lsp_documents = value["documents"].as_u64().unwrap_or(0);
                 stats.lsp_starts = value["starts"].as_u64().unwrap_or(0);
                 stats.lsp_requests = value["requests"].as_u64().unwrap_or(0);
             }
             "graph_provider_status" => {
+                stats.graph_provider_observed = true;
                 let providers = value.as_array().cloned().unwrap_or_default();
                 stats.lsp_fresh = providers
                     .iter()

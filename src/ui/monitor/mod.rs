@@ -273,6 +273,13 @@ struct IntelligenceStats {
     graph_added_edges: Option<u64>,
     graph_removed_edges: Option<u64>,
     graph_changed_edges: Option<u64>,
+    // Semantic and provider counters arrive as four separate event groups. A
+    // group that never arrived must not read as a measured zero, so each group
+    // records whether its event was observed.
+    semantic_observed: bool,
+    provider_observed: bool,
+    session_observed: bool,
+    graph_provider_observed: bool,
     semantic_confirmed: u64,
     semantic_candidates: u64,
     lsp_available: u64,

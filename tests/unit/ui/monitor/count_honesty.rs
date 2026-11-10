@@ -96,3 +96,16 @@ fn graph_counts_stay_unknown_until_observed() {
     );
     assert!(diff_unknown.contains("unknown"), "{diff_unknown}");
 }
+
+#[test]
+fn semantic_and_provider_groups_stay_unknown_until_observed() {
+    let language = UiLanguage::En;
+    assert_eq!(
+        super::monitor_intelligence::observed_count(7, true, language),
+        "7"
+    );
+    let unobserved = super::monitor_intelligence::observed_count(0, false, language);
+    assert_eq!(unobserved, "unknown");
+    let zh = super::monitor_intelligence::observed_count(0, false, UiLanguage::ZhCn);
+    assert_eq!(zh, "未知");
+}

@@ -387,8 +387,17 @@ fn providers_show_unknown_jev_and_semantic_freshness_then_scroll_to_tunnels() {
             "sessions": 2, "documents": 5, "starts": 3, "requests": 12
         }),
     );
+    monitor.record_intelligence_result(
+        "backend",
+        "graph_provider_status",
+        &serde_json::json!([
+            {"provider": "lsp:a", "freshness": "stale"},
+            {"provider": "lsp:b", "freshness": "stale"},
+            {"provider": "lsp:c", "freshness": "stale"},
+            {"provider": "lsp:d", "freshness": "stale"}
+        ]),
+    );
     let mut snapshot = monitor.snapshot();
-    snapshot.intelligence.get_mut("backend").unwrap().lsp_stale = 4;
     snapshot.tunnel_runtime.push(MonitorTunnelRuntimeStatus {
         provider: "test-provider".to_owned(),
         url: Some("https://example.test".to_owned()),

@@ -818,6 +818,16 @@ fn render_task_console(
     console_paragraph(frame, rows[2], details, ui.console_scroll);
 }
 
+// Counters that share one source event are only measurable once that event was
+// observed; otherwise the group reads as unknown rather than as a zero.
+fn observed_count(value: u64, observed: bool) -> String {
+    if observed {
+        value.to_string()
+    } else {
+        "unknown".to_owned()
+    }
+}
+
 fn render_provider_console(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -828,9 +838,9 @@ fn render_provider_console(
 ) {
     let mut lines = vec![
         Line::from(Span::styled("SEMANTIC PROVIDERS", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
-        Line::from(format!("Available {} · launch ready {} · validated {} · authorization required {} · missing {}", stats.lsp_available, stats.lsp_launch_ready, stats.lsp_validated, stats.lsp_authorization_required, stats.lsp_missing)),
-        Line::from(format!("Warm sessions {} · documents {} · starts {} · requests {}", stats.lsp_sessions, stats.lsp_documents, stats.lsp_starts, stats.lsp_requests)),
-        Line::from(format!("Fresh snapshots {} · stale {} · confirmed facts {} · candidates {}", stats.lsp_fresh, stats.lsp_stale, stats.semantic_confirmed, stats.semantic_candidates)),
+        Line::from(format!("Available {} · launch ready {} · validated {} · authorization required {} · missing {}", observed_count(stats.lsp_available, stats.provider_observed), observed_count(stats.lsp_launch_ready, stats.provider_observed), observed_count(stats.lsp_validated, stats.provider_observed), observed_count(stats.lsp_authorization_required, stats.provider_observed), observed_count(stats.lsp_missing, stats.provider_observed))),
+        Line::from(format!("Warm sessions {} · documents {} · starts {} · requests {}", observed_count(stats.lsp_sessions, stats.session_observed), observed_count(stats.lsp_documents, stats.session_observed), observed_count(stats.lsp_starts, stats.session_observed), observed_count(stats.lsp_requests, stats.session_observed))),
+        Line::from(format!("Fresh snapshots {} · stale {} · confirmed facts {} · candidates {}", observed_count(stats.lsp_fresh, stats.graph_provider_observed), observed_count(stats.lsp_stale, stats.graph_provider_observed), observed_count(stats.semantic_confirmed, stats.semantic_observed), observed_count(stats.semantic_candidates, stats.semantic_observed))),
         Line::from(format!("Graph precision {} · observed {}", stats.graph_precision.as_deref().unwrap_or("unknown"), last_seen_text(stats.updated_at))),
         Line::from(""),
         Line::from(Span::styled("DECISION RUNTIME", Style::default().fg(SECONDARY).add_modifier(Modifier::BOLD))),

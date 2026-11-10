@@ -573,10 +573,14 @@ pub(super) fn render_intelligence_overlay(
                     language.tr("SEMANTICS"),
                     format!(
                         "{} confirmed · {} candidates · LSP {}/{} ready",
-                        stats.semantic_confirmed,
-                        stats.semantic_candidates,
-                        stats.lsp_launch_ready,
-                        stats.lsp_available
+                        observed_count(stats.semantic_confirmed, stats.semantic_observed, language),
+                        observed_count(
+                            stats.semantic_candidates,
+                            stats.semantic_observed,
+                            language
+                        ),
+                        observed_count(stats.lsp_launch_ready, stats.provider_observed, language),
+                        observed_count(stats.lsp_available, stats.provider_observed, language)
                     ),
                     if stats.lsp_fresh > 0 {
                         SUCCESS
@@ -678,7 +682,8 @@ pub(super) fn render_intelligence_overlay(
             language.tr("SEMANTICS"),
             format!(
                 "{} confirmed · {} candidates",
-                stats.semantic_confirmed, stats.semantic_candidates
+                observed_count(stats.semantic_confirmed, stats.semantic_observed, language),
+                observed_count(stats.semantic_candidates, stats.semantic_observed, language)
             ),
             ACCENT,
         ),
@@ -687,16 +692,16 @@ pub(super) fn render_intelligence_overlay(
             if config.semantic_auto {
                 format!(
                     "ready {}/{} · live {} · auth {} · missing {} · auto {} · warm {}/{} · fresh {}/{}",
-                    stats.lsp_launch_ready,
-                    stats.lsp_available,
-                    stats.lsp_validated,
-                    stats.lsp_authorization_required,
-                    stats.lsp_missing,
-                    stats.lsp_automatic,
-                    stats.lsp_sessions,
-                    stats.lsp_documents,
-                    stats.lsp_fresh,
-                    stats.lsp_stale
+                    observed_count(stats.lsp_launch_ready, stats.provider_observed, language),
+                    observed_count(stats.lsp_available, stats.provider_observed, language),
+                    observed_count(stats.lsp_validated, stats.provider_observed, language),
+                    observed_count(stats.lsp_authorization_required, stats.provider_observed, language),
+                    observed_count(stats.lsp_missing, stats.provider_observed, language),
+                    observed_count(stats.lsp_automatic, stats.provider_observed, language),
+                    observed_count(stats.lsp_sessions, stats.session_observed, language),
+                    observed_count(stats.lsp_documents, stats.session_observed, language),
+                    observed_count(stats.lsp_fresh, stats.graph_provider_observed, language),
+                    observed_count(stats.lsp_stale, stats.graph_provider_observed, language)
                 )
             } else {
                 "off · Tree-sitter only".to_owned()
@@ -857,6 +862,16 @@ pub(super) fn blockers_label(count: Option<u64>, language: UiLanguage) -> String
     match count {
         Some(count) => format!("{count} {}", language.tr("blocker(s)")),
         None => language.tr("unknown blocker count").to_owned(),
+    }
+}
+
+// Counters that share one source event are only measurable once that event was
+// observed; otherwise the group reads as unknown rather than as a zero.
+pub(super) fn observed_count(value: u64, observed: bool, language: UiLanguage) -> String {
+    if observed {
+        value.to_string()
+    } else {
+        language.tr("unknown").to_owned()
     }
 }
 
