@@ -382,6 +382,22 @@ fn failure_memory_unavailable_and_partial_checks_remain_unverified_candidates() 
 }
 
 #[test]
+fn a_failure_memory_lesson_carries_its_observation_time_and_source_root() {
+    let (_root, workspace) = fixture();
+    let time = now_ms().saturating_sub(10);
+    observe(&workspace, proof("failed", EvidenceResult::Fail, time));
+    let lesson = recall(&workspace, "", &[], 8).unwrap().items.remove(0);
+    assert_eq!(
+        lesson.observed_at_ms, time,
+        "the lesson must say when it was observed"
+    );
+    assert!(
+        !lesson.source_root_digest.is_empty(),
+        "the lesson must say which workspace root it came from"
+    );
+}
+
+#[test]
 fn failure_memory_none_policy_is_exact_and_recovery_does_not_grant_acceptance() {
     let (_root, workspace) = fixture();
     let time = now_ms().saturating_sub(10);

@@ -89,6 +89,12 @@ pub(crate) struct FailureMemoryLesson {
     pub check: Option<RequiredVerificationCheck>,
     pub paths: Vec<String>,
     pub observations: usize,
+    // The lesson aggregates every retained observation for this check binding,
+    // which may span a long period. Naming the observation time and the source
+    // root digest of the record that opened it keeps "historical advisory" from
+    // reading as a statement about the current input.
+    pub observed_at_ms: u64,
+    pub source_root_digest: String,
     pub failure_evidence_id: Option<String>,
     pub pass_evidence_id: Option<String>,
     pub guidance: String,
@@ -527,6 +533,8 @@ pub(crate) fn recall(
                 id: record.id.clone(), status: if recovery.is_some() { "verified_same_check_recovery" } else { "unverified" },
                 source: if recovery.is_some() { "native_recovery" } else { "check_observation" },
                 check: check.cloned(), paths: record.paths.clone(), observations: 0,
+                observed_at_ms: record.timestamp_ms,
+                source_root_digest: record.root_digest.clone(),
                 failure_evidence_id: recovery.map(|link| link.failure.evidence_id.clone()).or_else(|| record.check.as_ref().map(|check| check.evidence_id.clone())),
                 pass_evidence_id: recovery.map(|link| link.pass.evidence_id.clone()),
                 guidance: if recovery.is_some() { "A later complete native run passed this same check; inspect the linked revisions and edits. This association does not prove the cause or current Acceptance." }
@@ -560,6 +568,8 @@ pub(crate) fn recall(
                 check: check.cloned(),
                 paths: record.paths.clone(),
                 observations: 0,
+                observed_at_ms: record.timestamp_ms,
+                source_root_digest: record.root_digest.clone(),
                 failure_evidence_id: None,
                 pass_evidence_id: None,
                 guidance: rule.guidance.clone(),
