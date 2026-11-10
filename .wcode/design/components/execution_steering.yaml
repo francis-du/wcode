@@ -4,7 +4,9 @@ name: Structured Execution Steering and Handoff
 responsibilities:
   - persist bounded revision-guarded structured user directives on the active Execution without storing a transcript
   - restore pending directive state through Agent Context before additional implementation work
-  - mark scope/objective-changing directives against a bound approved plan as requiring replan instead of mutating it
+  - mark scope/objective-changing directives against any bound plan as requiring replan without changing approval authority
+  - select replacement plans only for the same workspace and current repository revision after explicit steering and Worklist advance
+  - preserve pending steering and verification floors when unfinished work is reopened
   - derive clean handoff lineage from Execution Worklist Reconciliation and Verification state only
   - project pending steering replan requirement verification floor and handoff lineage into the read-only Engineering Observatory
   - raise generated Verification/Reconciliation proof policy to the persisted verification floor and block settlement on weaker proof

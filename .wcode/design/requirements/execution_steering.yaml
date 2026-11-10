@@ -6,8 +6,11 @@ intent: >-
   Steering is stored as bounded structured directive state tied to an expected Execution revision and current
   Worklist/repository revision, and is restored through Agent Context before further work. Directives may refine the
   objective, request a scope change or request stronger verification, but cannot self-author completion, weaken
-  policy, bypass authorization or lower verification. A directive that changes scope/objective while an approved
-  Reconciliation plan is bound must surface replan_required rather than silently mutating the frozen plan. Handoff
+  policy, bypass authorization or lower verification. A directive that changes scope/objective while a
+  Reconciliation plan is bound must surface replan_required, including when the old plan is unapproved. After
+  Worklist advances, refresh may replace the binding only with a current-revision plan for the same workspace;
+  without a replacement the directive remains pending, and every replacement retains its own approval gate.
+  Reopening work while a directive is pending must preserve Execution identity and the verification floor. Handoff
   creates a clean continuation from structured Execution/Worklist/plan/proof state and lineage only; it does not
   persist or replay chat transcripts or chain-of-thought. The Engineering Observatory exposes the pending directive,
   replan requirement, verification floor and handoff lineage as read-only structured state so operators can see why

@@ -830,3 +830,118 @@ async fn mcp_stage_reports_cannot_satisfy_required_stages_or_replace_native_fail
         1
     );
 }
+
+#[test]
+fn explicit_replan_keeps_unapproved_replacement_behind_write_gate() {
+    use crate::execution::{ExecutionDirectiveInput, ExecutionDirectiveKind};
+    use crate::worklist::{self, WorkItemPatch, WorkItemStatus, WorklistUpdate};
+
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+    fs::create_dir(root.path().join("src")).unwrap();
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> u8 { 1 }\n",
+    )
+    .unwrap();
+    let workspaces = Workspaces::new([root.path()], true, false).unwrap();
+    let workspace_id = workspaces.default_id().to_owned();
+    let state = AppState {
+        auth: Arc::new(AuthState::new("http://127.0.0.1:8765".into())),
+        workspaces,
+        harness: ToolHarness::new(1).unwrap(),
+        monitor: TaskMonitor::new([workspace_id.clone()]),
+        tasks: TaskRuntime::default(),
+    };
+    let (_, workspace) = state.workspaces.select(Some(&workspace_id)).unwrap();
+    let update_worklist = |expected_revision, note: &str| {
+        worklist::update(
+            &workspace,
+            WorklistUpdate {
+                expected_revision,
+                goal: (expected_revision == 0).then(|| "Recover scoped implementation".to_owned()),
+                restart: false,
+                items: vec![WorkItemPatch {
+                    id: "work".to_owned(),
+                    title: Some("Implement current scope".to_owned()),
+                    status: Some(WorkItemStatus::InProgress),
+                    depends_on: None,
+                    write_paths: None,
+                    note: Some(note.to_owned()),
+                }],
+            },
+        )
+        .unwrap();
+    };
+    update_worklist(0, "Start implementation under the original plan");
+    let mut old = writer_plan(&workspace_id);
+    old.id = "RP-old-unapproved".into();
+    old.verification_plan.revision = Some(state.harness.current_revision(&workspace).unwrap());
+    crate::reconciliation_store::persist(&workspace, &old).unwrap();
+    let initial =
+        crate::execution::refresh(&state.harness, &workspace_id, &workspace, false).unwrap();
+    assert_eq!(initial["checkpoint"]["reconciliation_plan_id"], old.id);
+    crate::execution::steer(
+        &workspace,
+        ExecutionDirectiveInput {
+            expected_revision: initial["revision"].as_u64().unwrap(),
+            kind: ExecutionDirectiveKind::ChangeScope,
+            summary: "Continue implementation under the current scope".to_owned(),
+            requested_by: "user:test".to_owned(),
+            objective: None,
+            scopes: vec!["component:runtime".to_owned()],
+            verification_strength: None,
+        },
+    )
+    .unwrap();
+
+    fs::write(
+        root.path().join("src/lib.rs"),
+        "pub fn value() -> u8 { 2 }\n",
+    )
+    .unwrap();
+    let revision = state.harness.current_revision(&workspace).unwrap();
+    let mut replacement = writer_plan(&workspace_id);
+    replacement.id = "RP-new-unapproved".into();
+    replacement.verification_plan.id = "VP-new-unapproved".into();
+    replacement.verification_plan.revision = Some(revision.clone());
+    crate::reconciliation_store::persist(&workspace, &replacement).unwrap();
+    update_worklist(
+        1,
+        "Applied the new scope; implementation remains unfinished",
+    );
+
+    let mut args = json!({
+        "workspace": workspace_id,
+        "path": "src/new.rs",
+        "content": "pub fn next() {}\n"
+    });
+    let context = runtime_policy_context(&state, "create_file", &args, &args).unwrap();
+    assert_eq!(context.plan_id.as_deref(), Some(replacement.id.as_str()));
+    assert!(context.decision.require_plan_approval);
+    let denied = before_tool(&state, "create_file", &mut args).err().unwrap();
+    assert!(denied.contains("plan_approval_required"), "{denied}");
+    assert!(!root.path().join("src/new.rs").exists());
+    assert!(
+        crate::reconciliation_approval::load(&workspace, &replacement.id)
+            .unwrap()
+            .is_none()
+    );
+
+    crate::reconciliation_approval::approve(
+        &workspace,
+        &replacement,
+        &revision,
+        "human:test",
+        "Approve this exact replacement plan in the isolated test workspace.",
+    )
+    .unwrap();
+    assert!(before_tool(&state, "create_file", &mut args).is_ok());
+    assert!(crate::reconciliation_approval::load(&workspace, &old.id)
+        .unwrap()
+        .is_none());
+    assert_ne!(
+        crate::execution::stored_status(&workspace).unwrap()["phase"],
+        "completed"
+    );
+}
