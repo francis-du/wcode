@@ -238,7 +238,10 @@ pub(super) fn run_dashboard(
         let approvals = approval_counts(&ui.pending_authorizations);
         let workspaces = ordered_workspaces_with_approvals(&config, &snapshot, &approvals);
         let workspace_count = workspaces.len();
-        let visible = workspace_column_count(size.width, workspace_count);
+        let visible = workspace_column_count(
+            workspace_activity_width(size.width, size.height),
+            workspace_count,
+        );
         ui.sync_workspace_order(&workspaces, visible);
         if ui.commands_open && !commands_overlay_visible(area) {
             ui.commands_open = false;
@@ -332,14 +335,21 @@ pub(super) fn run_dashboard(
                                             .iter()
                                             .position(|workspace| workspace.0 == id)
                                         {
+                                            let previous = ui.workspace_focus_id.clone();
                                             ui.set_workspace_focus(
                                                 &workspaces,
                                                 index,
                                                 workspace_column_count(
-                                                    size.width,
+                                                    workspace_activity_width(
+                                                        size.width,
+                                                        size.height,
+                                                    ),
                                                     workspaces.len(),
                                                 ),
                                             );
+                                            if ui.workspace_focus_id != previous {
+                                                ui.reset_console_selection();
+                                            }
                                         }
                                     }
                                     Err(error) => {
@@ -382,20 +392,21 @@ pub(super) fn run_dashboard(
                                             ));
                                             let workspaces = ordered_workspaces(&config, &snapshot);
                                             let count = workspaces.len();
+                                            let visible = workspace_column_count(
+                                                workspace_activity_width(size.width, size.height),
+                                                count,
+                                            );
                                             if let Some(index) = workspaces
                                                 .iter()
                                                 .position(|workspace| workspace.0 == id)
                                             {
-                                                ui.set_workspace_focus(
-                                                    &workspaces,
-                                                    index,
-                                                    workspace_column_count(size.width, count),
-                                                );
+                                                let previous = ui.workspace_focus_id.clone();
+                                                ui.set_workspace_focus(&workspaces, index, visible);
+                                                if ui.workspace_focus_id != previous {
+                                                    ui.reset_console_selection();
+                                                }
                                             } else {
-                                                ui.sync_workspace_order(
-                                                    &workspaces,
-                                                    workspace_column_count(size.width, count),
-                                                );
+                                                ui.sync_workspace_order(&workspaces, visible);
                                             }
                                         }
                                         Err(error) => {
@@ -772,11 +783,8 @@ pub(super) fn run_dashboard(
                             };
                             let next = ui.workspace_focus.saturating_sub(step);
                             ui.set_workspace_focus(&workspaces, next, visible);
-                            ui.command_offset = 0;
                             if ui.workspace_focus_id != previous {
-                                ui.acceptance_detail_open = false;
-                                ui.console_focus = 0;
-                                ui.console_scroll = 0;
+                                ui.reset_console_selection();
                                 if let Some(workspace_id) =
                                     focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                                 {
@@ -796,11 +804,8 @@ pub(super) fn run_dashboard(
                                 .saturating_add(step)
                                 .min(workspaces.len().saturating_sub(1));
                             ui.set_workspace_focus(&workspaces, next, visible);
-                            ui.command_offset = 0;
                             if ui.workspace_focus_id != previous {
-                                ui.acceptance_detail_open = false;
-                                ui.console_focus = 0;
-                                ui.console_scroll = 0;
+                                ui.reset_console_selection();
                                 if let Some(workspace_id) =
                                     focused_workspace_id(&config, &snapshot, ui.workspace_focus)
                                 {

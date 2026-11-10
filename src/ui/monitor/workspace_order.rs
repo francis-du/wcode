@@ -130,3 +130,36 @@ pub(super) fn focused_workspace_id(
 ) -> Option<String> {
     focused_workspace_id_from(&ordered_workspaces(config, snapshot), focus)
 }
+
+/// Width the workspace activity panel actually gets under the current layout.
+/// The event loop needs this to size the same viewport the panel renders;
+/// using the terminal's full width over-counts columns whenever the wide
+/// layout splits the screen with the engineering rail.
+pub(super) fn workspace_activity_width(width: u16, height: u16) -> u16 {
+    if width >= 104 && height >= 24 {
+        (width.saturating_sub(1) * 70) / 100
+    } else {
+        width
+    }
+}
+
+/// First workspace card to render. Derived from the focus so the highlighted
+/// card and the VIEW range always agree with the width this layout produced.
+pub(super) fn workspace_window(
+    focus: usize,
+    stored_offset: usize,
+    total: usize,
+    visible: usize,
+) -> usize {
+    if total <= visible {
+        return 0;
+    }
+    let max_offset = total - visible;
+    let focus = focus.min(total - 1);
+    if focus >= max_offset {
+        return max_offset;
+    }
+    stored_offset
+        .min(max_offset)
+        .clamp(focus.saturating_sub(visible.saturating_sub(1)), focus)
+}

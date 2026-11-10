@@ -539,3 +539,21 @@ fn workspace_activity_order_promotes_running_queued_approval_then_recent() {
         vec!["active", "queued", "approval", "failed", "recent", "idle"]
     );
 }
+
+#[test]
+fn console_selection_resets_with_the_workspace() {
+    let mut ui = DashboardState {
+        acceptance_detail_open: true,
+        console_focus: 3,
+        console_scroll: 7,
+        console_task_id: Some(42),
+        command_offset: 5,
+        ..DashboardState::default()
+    };
+    ui.reset_console_selection();
+    assert!(!ui.acceptance_detail_open);
+    assert_eq!(ui.console_focus, 0);
+    assert_eq!(ui.console_scroll, 0);
+    assert_eq!(ui.console_task_id, None);
+    assert_eq!(ui.command_offset, 0);
+}

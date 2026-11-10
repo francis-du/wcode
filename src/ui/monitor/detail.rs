@@ -318,7 +318,7 @@ pub(super) fn render_workspace_activity(
     let workspaces = ordered_workspaces(config, snapshot);
     let total = workspaces.len();
     let visible = workspace_column_count(area.width, total);
-    let offset = ui.workspace_offset.min(total.saturating_sub(visible));
+    let offset = workspace_window(ui.workspace_focus, ui.workspace_offset, total, visible);
     let end = (offset + visible).min(total);
     let range = if total == 0 {
         "0 / 0".to_owned()

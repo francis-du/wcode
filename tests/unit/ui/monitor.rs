@@ -3,6 +3,9 @@ use ratatui::backend::TestBackend;
 
 #[path = "authorization_layout.rs"]
 mod authorization_layout;
+#[path = "monitor/workspace_viewport.rs"]
+mod workspace_viewport;
+
 #[path = "monitor/console.rs"]
 mod console;
 #[path = "monitor_health.rs"]
@@ -916,30 +919,6 @@ fn intelligence_url_keeps_ui_token_and_targets_focused_workspace() {
         url,
         "http://127.0.0.1:8765/intelligence#token=secret&workspace=frontend+app"
     );
-}
-
-#[test]
-fn workspace_columns_scale_from_one_to_four() {
-    assert_eq!(workspace_column_count(45, 6), 1);
-    assert_eq!(workspace_column_count(70, 6), 2);
-    assert_eq!(workspace_column_count(130, 6), 4);
-    assert_eq!(workspace_column_count(200, 1), 1);
-}
-
-#[test]
-fn workspace_viewport_follows_focus_and_pages() {
-    let mut ui = DashboardState {
-        workspace_focus: 4,
-        ..DashboardState::default()
-    };
-    ui.clamp(7, 3);
-    assert_eq!(ui.workspace_offset, 2);
-    ui.workspace_focus = 6;
-    ui.clamp(7, 3);
-    assert_eq!(ui.workspace_offset, 4);
-    ui.workspace_focus = 1;
-    ui.clamp(7, 3);
-    assert_eq!(ui.workspace_offset, 1);
 }
 
 #[test]

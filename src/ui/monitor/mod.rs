@@ -586,6 +586,17 @@ impl DashboardState {
         self.workspace_offset = self.workspace_offset.min(total.saturating_sub(visible));
     }
 
+    /// Drop the console selection with the workspace it belonged to. A scroll
+    /// offset, task selection or open acceptance detail recorded against
+    /// another workspace's entries would otherwise render against this one.
+    fn reset_console_selection(&mut self) {
+        self.acceptance_detail_open = false;
+        self.console_focus = 0;
+        self.console_scroll = 0;
+        self.console_task_id = None;
+        self.command_offset = 0;
+    }
+
     fn clamp_authorizations(&mut self, total: usize) {
         self.authorization_focus = if total == 0 {
             0
