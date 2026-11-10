@@ -36,16 +36,26 @@ function drawerLogsHtml() {
     return `<p class="drawer-empty">${esc(localized("Reading retained output for this job…", "正在读取该任务的保留输出…"))}</p>${notice}${openActivity}`;
   }
   // A bounded tail of the retained window, not the whole stream: the drawer is a
-  // compact projection, and the activity view still owns the full output.
-  const preview = ["stdout", "stderr"].map(name => {
+  // compact projection, and the activity view still owns the full output. The
+  // drawer's own cut is stated with its position, so "last 12 lines" can never
+  // read as the whole retained window.
+  const drawerTailLines = 12;
+  const tails = [];
+  const drawerNotices = [];
+  for (const name of ["stdout", "stderr"]) {
     const stream = job[name];
-    if (!stream || typeof stream.text !== "string" || !stream.text) return "";
-    const tail = stream.text.replace(/\r\n?/g, "\n").split("\n").slice(-12).join("\n");
-    return `<div class="drawer-log-stream">${esc(name)}</div><pre class="drawer-log">${esc(tail)}</pre>`;
-  }).join("");
+    if (!stream || typeof stream.text !== "string" || !stream.text) continue;
+    const lines = stream.text.replace(/\r\n?/g, "\n").split("\n");
+    if (lines.length > drawerTailLines) {
+      drawerNotices.push(localized(`"${name}" shows the last ${drawerTailLines} of ${num(lines.length)} retained lines.`, `"${name}" 显示保留输出的最后 ${drawerTailLines} / ${num(lines.length)} 行。`));
+    }
+    tails.push(`<div class="drawer-log-stream">${esc(name)}</div><pre class="drawer-log">${esc(lines.slice(-drawerTailLines).join("\n"))}</pre>`);
+  }
+  const preview = tails.join("");
   const notices = [
     job.stdout?.truncated || job.stderr?.truncated ? t("Output was truncated before display; the tail is shown.") : "",
     job.stdout?.redacted || job.stderr?.redacted ? t("Output was redacted before display.") : "",
+    ...drawerNotices,
   ].filter(Boolean).map(text => `<p class="drawer-notice">${esc(text)}</p>`).join("");
   return `<div class="drawer-log-head"><code>${esc(state.drawerJob)}</code><span>${esc(localized(`status ${job.status || "unknown"} · origin ${job.origin || "unknown"}`, `状态 ${job.status || "未知"} · 来源 ${job.origin || "未知"}`))}</span></div>`
     + (preview || `<p class="drawer-empty">${esc(t("No retained output for this job."))}</p>`)

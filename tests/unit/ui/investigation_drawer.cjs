@@ -42,6 +42,17 @@ test('the drawer lists retained jobs and keeps a selection for logs', () => {
   assert.match(logs, /stdout/);
 });
 
+test('the drawer states where its own log tail was cut', () => {
+  const s = sandbox();
+  s.context.fixture = fixtureWith();
+  const lines = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n');
+  s.run('state.project=fixture;state.runtimeJob={task_id:"TASK-1",status:"working",origin:"ui",stdout:{text:' + JSON.stringify(lines) + ',total_bytes:120,truncated:false,redacted:false},stderr:{text:"",total_bytes:0,truncated:false,redacted:false}};state.drawerJob="TASK-1";state.drawerSection="logs";renderInvestigationDrawer();');
+  const html = s.node('#drawerBody').innerHTML;
+  assert.match(html, /last 12 of 20 retained lines/, 'the drawer must say where it cut');
+  assert.match(html, /line 20/);
+  assert.doesNotMatch(html, /line 1\b/, 'only the bounded tail is shown');
+});
+
 test('the drawer does not read an unread job list as empty', () => {
   const s = sandbox();
   s.context.fixture = fixtureWith();

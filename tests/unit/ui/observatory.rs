@@ -324,8 +324,8 @@ fn investigation_drawer_keeps_problems_jobs_logs_and_evidence_visible() {
         String::from_utf8_lossy(&output.stderr)
     );
     for summary in [
-        "# tests 8",
-        "# pass 8",
+        "# tests 9",
+        "# pass 9",
         "# fail 0",
         "# cancelled 0",
         "# skipped 0",
