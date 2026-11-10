@@ -524,34 +524,43 @@ fn acceptance_check_summary(
                     matches!(reference, design::VerificationRef::Check { id: declared } if *declared == id)
                 })
             });
-            let (execution, outcome, level, freshness) = match observed.get(&id) {
-                Some((item, check)) => (
-                    match check.execution {
-                        crate::evidence::VerificationCheckExecution::Executed => "executed",
-                        crate::evidence::VerificationCheckExecution::Unavailable => "unavailable",
-                        crate::evidence::VerificationCheckExecution::TimedOut => "timed_out",
-                        crate::evidence::VerificationCheckExecution::Unknown => "unknown",
-                    }
-                    .to_owned(),
-                    match check.result {
-                        EvidenceResult::Pass => "pass",
-                        EvidenceResult::Fail => "fail",
-                        EvidenceResult::Inconclusive => "inconclusive",
-                        EvidenceResult::Disagree => "disagree",
-                    }
-                    .to_owned(),
-                    item.execution_receipt
-                        .as_ref()
-                        .map(|receipt| receipt.level.clone()),
-                    if item.revision == *revision { "current" } else { "stale" }.to_owned(),
-                ),
-                None => (
-                    "unknown".to_owned(),
-                    "unknown".to_owned(),
-                    None,
-                    "missing".to_owned(),
-                ),
-            };
+            let (execution, outcome, level, freshness, evidence_id, observed_revision, policy) =
+                match observed.get(&id) {
+                    Some((item, check)) => (
+                        match check.execution {
+                            crate::evidence::VerificationCheckExecution::Executed => "executed",
+                            crate::evidence::VerificationCheckExecution::Unavailable => {
+                                "unavailable"
+                            }
+                            crate::evidence::VerificationCheckExecution::TimedOut => "timed_out",
+                            crate::evidence::VerificationCheckExecution::Unknown => "unknown",
+                        }
+                        .to_owned(),
+                        match check.result {
+                            EvidenceResult::Pass => "pass",
+                            EvidenceResult::Fail => "fail",
+                            EvidenceResult::Inconclusive => "inconclusive",
+                            EvidenceResult::Disagree => "disagree",
+                        }
+                        .to_owned(),
+                        item.execution_receipt
+                            .as_ref()
+                            .map(|receipt| receipt.level.clone()),
+                        if item.revision == *revision { "current" } else { "stale" }.to_owned(),
+                        Some(item.id.clone()),
+                        Some(item.revision.clone()),
+                        item.policy.clone(),
+                    ),
+                    None => (
+                        "unknown".to_owned(),
+                        "unknown".to_owned(),
+                        None,
+                        "missing".to_owned(),
+                        None,
+                        None,
+                        None,
+                    ),
+                };
             crate::intelligence::ProjectAcceptanceCheckView {
                 id,
                 mapped,
@@ -560,6 +569,9 @@ fn acceptance_check_summary(
                 execution,
                 outcome,
                 freshness,
+                evidence_id,
+                revision: observed_revision,
+                policy,
             }
         })
         .collect()

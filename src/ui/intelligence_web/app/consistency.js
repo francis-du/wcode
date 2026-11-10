@@ -154,12 +154,18 @@ const consistencyRows = () => {
       design: criteria.length
         ? criteria.map(criterionText).join(" / ")
         : t("no acceptance criterion references this check"),
+      // The outcome is only meaningful next to the input version and policy it
+      // was produced under, so an observed check carries them; an unobserved
+      // one leaves them out rather than implying a current-version result.
       actual: [mapped ? t("mapped") : t("not mapped"),
         `${t("Required")}: ${check.required_level || "—"}`,
         check.level ? `${t("Reported")}: ${check.level}` : "",
         `${t("Execution")}: ${check.execution || "—"}`,
         `${t("Outcome")}: ${check.outcome || "—"}`,
-        `${t("Freshness")}: ${check.freshness || "—"}`].filter(Boolean).join(" · "),
+        `${t("Freshness")}: ${check.freshness || "—"}`,
+        check.evidence_id ? `${t("Evidence")}: ${check.evidence_id}` : "",
+        check.revision?.code ? `${t("Revision")}: ${String(check.revision.code).slice(0, 19)}` : "",
+        check.policy ? `${t("Policy")}: ${check.policy}` : ""].filter(Boolean).join(" · "),
       state: !mapped || !executed || failed ? "needs_attention" : !fresh ? "needs_attention" : "stable",
       delta,
       navigate: "proofSection",

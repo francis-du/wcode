@@ -213,6 +213,8 @@ const translations = {
     "Jobs": "任务",
     "Logs": "日志",
     "Evidence": "证据",
+    "Revision": "版本",
+    "Policy": "策略",
     "Collapse panel": "收起面板",
     "Expand panel": "展开面板",
     "Session investigation record": "会话调查记录",

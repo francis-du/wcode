@@ -496,6 +496,15 @@ pub struct ProjectAcceptanceCheckView {
     pub execution: String,
     pub outcome: String,
     pub freshness: String,
+    // The outcome is only meaningful next to the input version and policy it
+    // was produced under, so an observed check carries them and an unobserved
+    // one leaves them absent rather than implying a current-version result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<crate::evidence::Revision>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

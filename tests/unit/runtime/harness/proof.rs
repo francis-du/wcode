@@ -318,6 +318,9 @@ fn observatory_acceptance_checks_trace_each_required_check_to_its_evidence() {
     assert_eq!(view.freshness, "current");
     assert_eq!(view.level.as_deref(), Some("full"));
     assert!(view.required_level.is_some());
+    assert_eq!(view.evidence_id.as_deref(), Some("EV-1"));
+    assert_eq!(view.revision.as_ref(), Some(&revision));
+    assert_eq!(view.policy.as_deref(), Some("acceptance/full/v2"));
     let unobserved = required
         .iter()
         .filter(|check| check.id != "rust-test")

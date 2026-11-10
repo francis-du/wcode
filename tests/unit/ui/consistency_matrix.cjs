@@ -50,9 +50,11 @@ test('acceptance rows keep mapped, executed, outcome and freshness independent',
         statement: 'The suite passes', verification: [{ kind: 'check', id: 'CHK-1' }] } } },
     proof: { acceptance: { checks: [
       { id: 'CHK-1', required: true, required_level: 'quick', level: 'quick',
-        mapped: true, execution: 'executed', outcome: 'pass', freshness: 'current', evidence_ids: [] },
+        mapped: true, execution: 'executed', outcome: 'pass', freshness: 'current',
+        evidence_id: 'EV-1', revision: { code: 'sha256:' + 'a'.repeat(64), design: null },
+        policy: 'acceptance/full/v2' },
       { id: 'CHK-2', required: true, required_level: 'full', level: 'full',
-        mapped: true, execution: 'unavailable', outcome: 'unknown', freshness: 'stale', evidence_ids: [] }] } } };
+        mapped: true, execution: 'unavailable', outcome: 'unknown', freshness: 'stale' }] } } };
   s.run('state.project=fixture;state.consistencyKind="acceptance";state.consistencyState="all";renderConsistencyMatrix();');
   const html = s.node('#consistencySection').innerHTML;
   assert.match(html, /CHK-1/);
@@ -64,6 +66,10 @@ test('acceptance rows keep mapped, executed, outcome and freshness independent',
     'an unreferenced check must not borrow a criterion');
   assert.match(html, /passed and current/);
   assert.match(html, /mapped but not executed/);
+  assert.match(html, /EV-1/, 'the outcome must name the evidence it came from');
+  assert.match(html, /Revision: sha256/, 'the outcome must say which input version it applies to');
+  assert.match(html, /Policy: acceptance\/full\/v2/, 'the outcome must say which policy it was produced under');
+  assert.doesNotMatch(html, /Policy: —/);
   assert.doesNotMatch(matrixOnly(html), /REQ-A/);
 });
 
