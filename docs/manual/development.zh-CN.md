@@ -24,7 +24,7 @@ wcode 按产品责任拆分源码，不继续增长一个泛化 Runtime / Servic
 - `src/design/`：Structured Desired Software State、Stable ID / Reference Validation、Sparse Initialization、Implementation / Verification Mapping。
 - `src/graph/`：Lazy Tree-sitter Code Index、Provider-neutral Software Graph，以及 Provider / Composite Revision Persistence。
 - `src/semantics/`：Persistent Candidate/Confirmed/Retired Semantic Registry 与第一方 LSP Provider Runtime。
-- `src/intelligence/`：仓库理解契约，包括 Traceability、Scoped/Task Context、Drift/Impact/Risk 和 Project Status Projection；`src/intelligence/observatory/architecture.rs` 负责 System → Subsystem → Component 分层蓝图与 Design-vs-Actual Architecture Projection。
+- `src/intelligence/`：仓库理解契约，包括 Traceability、Scoped/Task Context、Drift/Impact/Risk 和 Project Status Projection；`src/intelligence/observatory/architecture.rs` 负责 System → Subsystem → Component 分层蓝图与 Design-vs-Actual Architecture Projection；`src/intelligence/runtime/context_query.rs` 负责 Agent Context 与收敛计划共用的上下文查询分词与符号排序。
 - `src/verification/`：Verification Plan、Blind Reviewer/Readiness、Language Quality Provider，以及 Property/Mutation/Fuzz/Runtime Executor。
 - `src/evidence/`：带 Provenance 的 Evidence Contract 与 Bounded Persistence。
 - `src/telemetry.rs`：选择加入的本地工程观测导出：读取一个工作区保留的日志里程碑，并编码为有界的 JSON-lines。没有默认采集上传，也没有后台发送器；导出事件永不携带凭证、Token、原始源码、Prompt 或查询文本。该导出是观测记录，不是 Evidence，也不是 Acceptance。
