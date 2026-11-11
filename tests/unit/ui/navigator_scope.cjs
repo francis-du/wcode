@@ -133,6 +133,25 @@ test('the right inspector summarizes the selected object and its stable id', () 
   assert.match(s.node('#objectInspector').innerHTML, /Select an object/);
 });
 
+test('the right inspector scopes a change by its retained diff size', () => {
+  const s = sandbox();
+  s.context.fixture = fixture(true);
+  const lines = ["--- a/src/changed.rs", "+++ b/src/changed.rs", "@@ -1,2 +1,3 @@",
+    " context", "-removed", "+added one", "+added two"];
+  s.context.lines = lines;
+  s.run('state.project=fixture;'
+    + 'state.changeInspection={path:"src/changed.rs",layer:"working",'
+    + 'data:{kind:"unified_diff",path:"src/changed.rs",snapshot_id:"' + "a".repeat(64) + '",'
+    + 'content:lines.join(String.fromCharCode(10))}};'
+    + 'renderObjectInspector();');
+  const html = s.node('#objectInspector').innerHTML;
+  assert.match(html, /Hunks/i);
+  assert.match(html, /Added/i);
+  assert.match(html, /Removed/i);
+  assert.match(html, /\+2/);
+  assert.match(html, /-1/);
+});
+
 test('the right inspector names the selected code symbol and its provenance', () => {
   const s = sandbox();
   s.context.fixture = fixture(true);

@@ -62,9 +62,27 @@ function renderObjectInspector() {
       + objectInspectorFact(localized("Snapshot", "快照"), String(state.codeReader.snapshotId || "—").slice(0, 16))
     }</div>`;
   } else if (state.changeInspection?.path) {
+    // The change's own size is the scope the operator needs before opening the
+    // full diff. Counts come from the retained unified diff, so a binary or
+    // not-yet-read change keeps them explicitly unknown instead of zero.
+    const diff = state.changeInspection.data;
+    let hunks = "—", added = "—", removed = "—";
+    if (diff && typeof diff.content === "string" && diff.content.length) {
+      let hunkHeaders = 0, addedLines = 0, removedLines = 0, inHunk = false;
+      for (const line of diff.content.split("\n")) {
+        if (line.startsWith("@@")) { hunkHeaders++; inHunk = true; continue; }
+        if (!inHunk || line.startsWith("+++") || line.startsWith("---")) continue;
+        if (line.startsWith("+")) addedLines++;
+        else if (line.startsWith("-")) removedLines++;
+      }
+      hunks = num(hunkHeaders); added = `+${num(addedLines)}`; removed = `-${num(removedLines)}`;
+    }
     body = `<div class="inspector-kind">${esc(localized("Change", "变更"))}</div><strong class="inspector-title">${esc(state.changeInspection.path)}</strong><div class="inspector-facts">${
       objectInspectorFact(localized("Layer", "层级"), statusLabel(state.changeInspection.layer))
       + objectInspectorFact(localized("Status", "状态"), statusLabel(changeStatus(state.changeInspection.path)))
+      + objectInspectorFact(localized("Hunks", "变更块"), hunks)
+      + objectInspectorFact(localized("Added", "新增行"), added)
+      + objectInspectorFact(localized("Removed", "删除行"), removed)
     }</div>`;
   } else if (state.selectedCodeNode && state.codeGraph) {
     // A code graph selection is an investigation object too, so the inspector
