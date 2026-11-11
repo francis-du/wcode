@@ -51,6 +51,42 @@ test('activity-old-error-cannot-poison-new-workspace', async () => {
   s.requests[0].reject(new Error('old failure')); await old;
   assert.equal(s.run('state.activityError'),false);
 });
+test('change-scope-stays-unknown-without-a-retained-diff', async () => {
+  const s=setup();
+  s.run('state.changeInspection={path:"src/blob.bin",layer:"working",'
+    + 'data:{kind:"binary",path:"src/blob.bin",snapshot_id:"' + 'a'.repeat(64) + '",content:""}};renderObjectInspector();');
+  const html=s.node('#objectInspector').innerHTML;
+  assert.ok(/Change/.test(html),'the selected change must still be identified');
+  assert.ok(!html.includes('+0'),'a binary change cannot read as zero added lines');
+  assert.ok(!html.includes('-0'),'a binary change cannot read as zero removed lines');
+});
+test('stale-graph-cannot-read-as-current', async () => {
+  const s=setup();
+  const node={id:'symbol:alpha',kind:'function',label:'alpha',attributes:{path:'src/a.rs',source_kind:'function'},provenance:{provider:'tree-sitter',precision:'syntax',revision:'rev-a'}};
+  s.run('state.current="A";state.codeGraphView="focus";'
+    + 'state.codeGraph={snapshot_id:"GRAPH-old",mode:"all",depth:1,root_ids:["symbol:alpha"],'
+    + 'nodes:[{node:' + JSON.stringify(node) + ',distance:0}],edges:[],'
+    + 'precision_counts:{},upstream_nodes:0,downstream_nodes:0,truncated:false};'
+    + 'state.selectedCodeNode="symbol:alpha";'
+    + 'state.project.history=[{id:"GRAPH-new",captured_at_ms:2},{id:"GRAPH-old",captured_at_ms:1}];renderCodeGraph();');
+  const stale=s.node('#codeGraphSummary').innerHTML;
+  assert.ok(/stale/i.test(stale),'a latest graph the newest capture replaced must say so');
+  assert.ok(s.node('#codeGraphMap').innerHTML.includes('GRAPH-new'),
+    'the stale reading must name the snapshot that is current now');
+  s.run('state.codeGraphSnapshot="GRAPH-old";renderCodeGraph();');
+  assert.ok(!/stale/i.test(s.node('#codeGraphSummary').innerHTML),
+    'a deliberately pinned snapshot is a comparison, not a stale reading');
+});
+test('symbol-inspector-cannot-invent-provenance', async () => {
+  const s=setup();
+  s.run('state.selectedCodeNode="symbol:ghost";'
+    + 'state.codeGraph={snapshot_id:"GRAPH-overview",nodes:[{node:{id:"symbol:ghost",label:"ghost",kind:"function",attributes:{}},distance:1}],edges:[]};'
+    + 'renderObjectInspector();');
+  const html=s.node('#objectInspector').innerHTML;
+  assert.ok(/Symbol/.test(html),'the selected symbol must still be identified');
+  assert.ok(!html.includes('undefined'),'missing provenance must stay unknown');
+  assert.ok(!html.includes('NaN'),'missing provenance must stay unknown');
+});
 test('proof-details-are-bounded-and-escaped', async () => {
   const s=setup();
   s.context.items=Array.from({length:100},(_,i)=>({id:'e'+i,subject:'<img onerror=alert(1)>',summary:'<script>bad</script>',result:'fail',producer:'<b>bad</b>',timestamp_ms:i+1}));

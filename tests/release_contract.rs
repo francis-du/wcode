@@ -17,7 +17,11 @@ fn adversarial_release_keeps_full_ci_coverage_while_supporting_local_shards() {
     assert!(audit.contains("wcode-adversarial-300.json"));
     assert!(audit.contains("release_metadata_versions_match_the_cargo_package"));
     assert!(audit.contains("extraRustRounds.length,70"));
-    assert!(audit.contains("POSTLUDE_RUST_ROUNDS = 200"));
+    assert!(audit.contains("POSTLUDE_RUST_ROUNDS = 197"));
+    assert!(audit.contains("rounds.length,103"));
+    assert!(audit.contains("change-scope-stays-unknown-without-a-retained-diff"));
+    assert!(audit.contains("stale-graph-cannot-read-as-current"));
+    assert!(audit.contains("symbol-inspector-cannot-invent-provenance"));
     assert!(audit.contains("allRounds.length,FULL_AUDIT_ROUNDS"));
     assert!(audit.contains("--rounds must stay within 1-300"));
     assert!(audit.contains("--ignored"));

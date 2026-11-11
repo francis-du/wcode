@@ -242,7 +242,7 @@ fn observatory_adversarial_failures_are_part_of_the_full_suite() {
                 .as_ref()
                 .ok()
                 .and_then(|report| report["results"].as_array())
-                .is_some_and(|results| results.len() == 6
+                .is_some_and(|results| results.len() == 9
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

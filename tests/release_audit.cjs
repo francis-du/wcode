@@ -11,7 +11,7 @@ const {promisify} = require('node:util');
 const exec = promisify(execFile);
 const root = path.resolve(__dirname, '..');
 const FULL_AUDIT_ROUNDS = 300;
-const POSTLUDE_RUST_ROUNDS = 200;
+const POSTLUDE_RUST_ROUNDS = 197;
 const cargo = filter => ({program:'cargo',args:['test','--locked','--quiet','--lib',filter],kind:'rust'});
 const cargoExact = filter => ({program:'cargo',args:['test','--locked','--quiet','--lib',filter,'--','--exact'],kind:'rust'});
 const cargoTest = (test,filter) => ({program:'cargo',args:['test','--locked','--quiet','--test',test,filter],kind:'rust'});
@@ -42,13 +42,13 @@ const rustRounds = [
 const rounds = rustRounds.map(([name,filter],i)=>({round:i+1,name,lane:'rust',steps:[cargo(filter)]}));
 rounds[1].steps.push(cargo('tunnel_event_stays_compact_and_preserves_endpoint_ownership'));
 rounds.push({round:20,name:'Refresh status, timeouts, cancellation and revision rollback',lane:'web',steps:[node('tests/unit/ui/refresh.cjs')]});
-const scenarios = ['cached-render-failure','activity-render-failure','effective-zero-beats-history','failed-evidence-is-not-green','activity-old-error-cannot-poison-new-workspace','proof-details-are-bounded-and-escaped'];
+const scenarios = ['cached-render-failure','activity-render-failure','effective-zero-beats-history','failed-evidence-is-not-green','activity-old-error-cannot-poison-new-workspace','proof-details-are-bounded-and-escaped','change-scope-stays-unknown-without-a-retained-diff','stale-graph-cannot-read-as-current','symbol-inspector-cannot-invent-provenance'];
 scenarios.forEach((name,i)=>rounds.push({round:21+i,name,lane:'web',steps:[node('tests/unit/ui/adversarial.cjs',name)]}));
 rounds.push(
-  {round:27,name:'Workspace-scoped semantic and authorization responses',lane:'web',steps:[node('tests/unit/ui/release.cjs')]},
-  {round:28,name:'Nested grids and long-content geometry across 12 widths',lane:'web',steps:[node('tests/unit/ui/layout.cjs'),swift('tests/unit/ui/layout_webkit.swift',12)]},
-  {round:29,name:'Complete production DOM: 256 WebKit scenarios including Code Graph fullscreen',lane:'web',steps:[node('tests/unit/ui/code_graph.cjs'),node('tests/unit/ui/web_i18n.cjs'),node('tests/unit/ui/browser.cjs'),swift('tests/unit/ui/browser_webkit.swift',256)]},
-  {round:30,name:'Release regressions and fail-closed readiness',lane:'rust',steps:[cargo('intelligence::release_gate::tests'),cargo('migration_audit::tests'),cargo('syntax_search_cache_eviction_is_not_reported_as_file_failure'),cargo('workspace_relative_verification_executable_resolves_from_workspace_root'),cargo('syntax_search_defaults_cover_more_than_one_thousand_files_and_skip_comments'),cargo('direct_run_command_revision_flights_coalesce_verification_shape'),cargo('engineering_fitness_live_controls_preserve_safety_and_precision'),cargo('positive_harness_tools_flow_through_mcp'),cargo('postlude_budget_'),cargoTest('release_contract','release_metadata_versions_match_the_cargo_package')]},
+  {round:30,name:'Workspace-scoped semantic and authorization responses',lane:'web',steps:[node('tests/unit/ui/release.cjs')]},
+  {round:31,name:'Nested grids and long-content geometry across 12 widths',lane:'web',steps:[node('tests/unit/ui/layout.cjs'),swift('tests/unit/ui/layout_webkit.swift',12)]},
+  {round:32,name:'Complete production DOM: 256 WebKit scenarios including Code Graph fullscreen',lane:'web',steps:[node('tests/unit/ui/code_graph.cjs'),node('tests/unit/ui/web_i18n.cjs'),node('tests/unit/ui/browser.cjs'),swift('tests/unit/ui/browser_webkit.swift',256)]},
+  {round:33,name:'Release regressions and fail-closed readiness',lane:'rust',steps:[cargo('intelligence::release_gate::tests'),cargo('migration_audit::tests'),cargo('syntax_search_cache_eviction_is_not_reported_as_file_failure'),cargo('workspace_relative_verification_executable_resolves_from_workspace_root'),cargo('syntax_search_defaults_cover_more_than_one_thousand_files_and_skip_comments'),cargo('direct_run_command_revision_flights_coalesce_verification_shape'),cargo('engineering_fitness_live_controls_preserve_safety_and_precision'),cargo('positive_harness_tools_flow_through_mcp'),cargo('postlude_budget_'),cargoTest('release_contract','release_metadata_versions_match_the_cargo_package')]},
 );
 const extraRustRounds = [
   "auth_origin::tests::browser_origins_follow_active_aliases_not_the_primary_or_token_history",
@@ -123,14 +123,14 @@ const extraRustRounds = [
   "mcp::mcp_writer::tests::writer_restart_with_durable_claim_fails_closed_without_runtime_lease",
 ];
 extraRustRounds.forEach((filter,index)=>rounds.push({
-  round:31+index,
+  round:34+index,
   name:`Boundary ${31+index}: ${filter.split('::').at(-1).replaceAll('_',' ')}`,
   lane:'rust',
   steps:[cargoExact(filter)],
 }));
 assert.equal(extraRustRounds.length,70);
 assert.equal(new Set(extraRustRounds).size,70);
-assert.equal(rounds.length,100);
+assert.equal(rounds.length,103);
 
 function listedLibTests() {
   const list = extra => execFileSync(
@@ -189,8 +189,8 @@ function buildRounds(currentLibTests) {
   assert.equal(postludeRustRounds.length,POSTLUDE_RUST_ROUNDS);
   assert.equal(new Set(postludeRustRounds).size,POSTLUDE_RUST_ROUNDS);
   const allRounds=rounds.concat(postludeRustRounds.map((filter,index)=>({
-    round:101+index,
-    name:`Postlude ${101+index}: ${filter.replaceAll('::',' / ').replaceAll('_',' ')}`,
+    round:104+index,
+    name:`Postlude ${104+index}: ${filter.replaceAll('::',' / ').replaceAll('_',' ')}`,
     lane:'rust',
     steps:[cargoExact(filter)],
   })));
