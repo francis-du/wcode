@@ -20,14 +20,28 @@ const MAX_GRAPH_SNAPSHOT_BYTES: u64 = 16 * 1024 * 1024;
 /// monotonically named file, so a given path is parsed once. The bound keeps a
 /// handful of recent workspaces resident instead of growing with the machine.
 const SNAPSHOT_CACHE_ENTRIES: usize = 4;
+/// History entries are small, so the bound can cover every snapshot a
+/// workspace keeps several times over without holding a single parsed graph.
+const HISTORY_CACHE_ENTRIES: usize = 256;
 
 /// The parsed snapshot is shared, not cloned: a cache hit must not deep-copy the
 /// whole graph before a query can walk it.
 type CachedSnapshot = (SystemTime, u64, Option<Arc<StoredGraphSnapshot>>);
 type SnapshotCache = HashMap<PathBuf, CachedSnapshot>;
+/// A history entry summarizes one snapshot's metadata. Keeping the derived
+/// entry lets a listing skip re-parsing the whole graph, which is the
+/// difference between reading a few hundred bytes and deserializing tens of
+/// megabytes per revision.
+type CachedHistoryEntry = (SystemTime, u64, Option<GraphHistoryEntry>);
+type HistoryCache = HashMap<PathBuf, CachedHistoryEntry>;
 
 fn snapshot_cache() -> &'static Mutex<SnapshotCache> {
     static CACHE: OnceLock<Mutex<SnapshotCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn history_cache() -> &'static Mutex<HistoryCache> {
+    static CACHE: OnceLock<Mutex<HistoryCache>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -296,14 +310,58 @@ pub(crate) fn history(workspace: &Workspace, limit: usize) -> Result<Vec<GraphHi
     }
     let mut entries = Vec::new();
     for path in graph_paths(&directory)?.into_iter().rev() {
-        if let Some(stored) = read_snapshot(&path)? {
-            entries.push(history_entry(&stored));
+        if let Some(entry) = cached_history_entry(&path)? {
+            entries.push(entry);
             if entries.len() >= limit.clamp(1, MAX_GRAPH_SNAPSHOTS) {
                 break;
             }
         }
     }
     Ok(entries)
+}
+
+/// The history list reads metadata only, so it must not deserialize every
+/// graph. The derived entry is cached against the file's own identity: a
+/// rewrite or replacement changes the modification time or the length, and a
+/// snapshot is immutable once written.
+fn cached_history_entry(path: &Path) -> Result<Option<GraphHistoryEntry>> {
+    let Some((modified, len)) = snapshot_identity(path) else {
+        return Ok(None);
+    };
+    if let Some(cached) = history_cache().lock().ok().and_then(|cache| {
+        cache
+            .get(path)
+            .filter(|(cached_modified, cached_len, _)| {
+                *cached_modified == modified && *cached_len == len
+            })
+            .map(|(_, _, entry)| entry.clone())
+    }) {
+        return Ok(cached);
+    }
+    let entry = read_snapshot(path)?.map(|stored| history_entry(&stored));
+    if let Ok(mut cache) = history_cache().lock() {
+        if cache.len() >= HISTORY_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(path.to_path_buf(), (modified, len, entry.clone()));
+    }
+    Ok(entry)
+}
+
+/// The modification time and the length identify a snapshot file. A symlink,
+/// a non-file or a file past the size bound is not a readable snapshot.
+fn snapshot_identity(path: &Path) -> Option<(SystemTime, u64)> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => return None,
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > MAX_GRAPH_SNAPSHOT_BYTES.saturating_add(512 * 1024)
+    {
+        return None;
+    }
+    Some((metadata.modified().unwrap_or(UNIX_EPOCH), metadata.len()))
 }
 
 pub(crate) fn query(workspace: &Workspace, input: &GraphQueryInput) -> Result<GraphQueryResult> {
@@ -721,20 +779,11 @@ fn graph_snapshot_id_from_name(name: &str) -> Option<&str> {
 }
 
 fn read_snapshot(path: &Path) -> Result<Option<Arc<StoredGraphSnapshot>>> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(_) => return Ok(None),
-    };
-    if metadata.file_type().is_symlink()
-        || !metadata.is_file()
-        || metadata.len() > MAX_GRAPH_SNAPSHOT_BYTES.saturating_add(512 * 1024)
-    {
-        return Ok(None);
-    }
     // A rewrite or replacement changes the modification time or the length, so
     // a cached entry can never serve a snapshot that no longer matches the file.
-    let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
-    let len = metadata.len();
+    let Some((modified, len)) = snapshot_identity(path) else {
+        return Ok(None);
+    };
     if let Some(cached) = snapshot_cache().lock().ok().and_then(|cache| {
         cache
             .get(path)

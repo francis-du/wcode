@@ -582,6 +582,67 @@ fn repeated_snapshot_loads_are_served_from_the_cache() {
 }
 
 #[test]
+fn repeated_history_listings_do_not_reparse_every_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let provenance = |revision: &str| crate::graph::GraphProvenance {
+        provider: "tree-sitter:fixture".into(),
+        precision: GraphPrecision::Syntax,
+        revision: revision.into(),
+    };
+    for index in 0..3 {
+        let mut graph = SoftwareGraph::default();
+        graph
+            .add_node(GraphNode {
+                id: format!("function:item-{index}"),
+                kind: NodeKind::Function,
+                label: format!("item {index}"),
+                attributes: BTreeMap::new(),
+                provenance: provenance(&format!("syntax:{index}")),
+            })
+            .unwrap();
+        let snapshot = SoftwareGraphSnapshot {
+            workspace: "demo".into(),
+            path: ".".into(),
+            provider: "tree-sitter".into(),
+            precision: GraphPrecision::Syntax,
+            files_considered: 1,
+            files_indexed: 1,
+            files_failed: 0,
+            scan_truncated: false,
+            truncated: false,
+            node_count: 1,
+            edge_count: 0,
+            source_node_count: None,
+            source_edge_count: None,
+            failures: vec![],
+            graph,
+        };
+        persist(&workspace, &snapshot).unwrap();
+    }
+
+    READ_SNAPSHOT_CALLS.with(|count| count.set(0));
+    let first = history(&workspace, 10).unwrap();
+    assert_eq!(first.len(), 3);
+    let reads_after_first = READ_SNAPSHOT_CALLS.with(|count| count.get());
+    assert!(
+        reads_after_first >= 3,
+        "the first listing must read every snapshot"
+    );
+
+    let second = history(&workspace, 10).unwrap();
+    assert_eq!(
+        serde_json::to_value(&first).unwrap(),
+        serde_json::to_value(&second).unwrap()
+    );
+    assert_eq!(
+        READ_SNAPSHOT_CALLS.with(|count| count.get()),
+        reads_after_first,
+        "an unchanged history must not reparse the snapshots"
+    );
+}
+
+#[test]
 fn duplicate_graph_persist_reads_only_the_matching_snapshot() {
     let dir = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
