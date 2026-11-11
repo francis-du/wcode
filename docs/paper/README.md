@@ -32,7 +32,7 @@ The English revision improves metric definitions, the explanation of a recorded 
 | [snapshot.json](snapshot.json) | Selected fields, not the complete raw report |
 | [references.bib](references.bib) | Seven primary-source bibliography entries |
 | [revision.en.md](revision.en.md) | Editorial changes and remaining limitations |
-| [validation.en.md](validation.en.md) | Actual checks, build scope, and the unrelated workspace formatting blocker |
+| [validation.en.md](validation.en.md) | Actual checks, build scope, the unrelated workspace formatting blocker, and the dated current verification state |
 | [build.py](build.py) and [print.tex](print.tex) | Markdown-to-LaTeX/PDF build support |
 | [archive.py](archive.py) | Unexecuted, create-only archival helper; its execution was blocked |
 
