@@ -175,8 +175,12 @@ function renderAdaptiveVerification() {
     exploring: localized("cold-start exploration", "冷启动探索"),
     blocked: localized("backtest blocked", "回放阻断"),
   }[costEvaluation?.activation_state] || costEvaluation?.activation_state || "—";
+  const savingsBase = Number(costEvaluation?.static_elapsed_ms) || 0;
+  const savingsRate = savingsBase > 0
+    ? `${Number(costEvaluation?.net_savings_percent || 0).toFixed(1)}%`
+    : localized("not measured", "未测量");
   const evaluation = costEvaluation
-    ? `<div class="info-card"><b>${esc(localized("Cost-model replay", "成本模型回放"))}</b><div class="pills">${pill(activationLabel, activationTone)}${pill(`${costEvaluation.candidate_model || "—"} vs ${costEvaluation.baseline_model || "—"}`)}</div><div class="metric">${Number(costEvaluation.net_savings_percent || 0).toFixed(1)}%</div><div class="panel-meta">${esc(localized(`${costEvaluation.net_savings_ms || 0} ms net · ${costEvaluation.wins || 0} wins / ${costEvaluation.ties || 0} ties / ${costEvaluation.losses || 0} losses`, `净收益 ${costEvaluation.net_savings_ms || 0} ms · ${costEvaluation.wins || 0} 胜 / ${costEvaluation.ties || 0} 平 / ${costEvaluation.losses || 0} 负`))}<br>${esc(localized(`${costEvaluation.evaluable_revisions || 0} evaluable revisions · minimum ${costEvaluation.minimum_evaluable_revisions || 0} · ${costEvaluation.activation_reason || "—"}`, `${costEvaluation.evaluable_revisions || 0} 个可评估 revision · 最少 ${costEvaluation.minimum_evaluable_revisions || 0} 个 · ${costEvaluation.activation_reason || "—"}`))}</div></div>`
+    ? `<div class="info-card"><b>${esc(localized("Cost-model replay", "成本模型回放"))}</b><div class="pills">${pill(activationLabel, activationTone)}${pill(`${costEvaluation.candidate_model || "—"} vs ${costEvaluation.baseline_model || "—"}`)}</div><div class="metric">${esc(savingsRate)}</div><div class="panel-meta">${esc(localized(`${costEvaluation.net_savings_ms || 0} ms net · ${costEvaluation.wins || 0} wins / ${costEvaluation.ties || 0} ties / ${costEvaluation.losses || 0} losses`, `净收益 ${costEvaluation.net_savings_ms || 0} ms · ${costEvaluation.wins || 0} 胜 / ${costEvaluation.ties || 0} 平 / ${costEvaluation.losses || 0} 负`))}<br>${esc(localized(`${costEvaluation.evaluable_revisions || 0} evaluable revisions · minimum ${costEvaluation.minimum_evaluable_revisions || 0} · ${costEvaluation.activation_reason || "—"}`, `${costEvaluation.evaluable_revisions || 0} 个可评估 revision · 最少 ${costEvaluation.minimum_evaluable_revisions || 0} 个 · ${costEvaluation.activation_reason || "—"}`))}</div></div>`
     : "";
   const fallback = adaptive.fallback_reason
     ? `<div class="empty">${esc(adaptiveFallbackLabel(adaptive.fallback_reason))}</div>`
