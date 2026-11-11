@@ -6,6 +6,10 @@ function renderWorkspaceOptions() {
 }
 function renderSharedChrome() {
   renderWorkspaceOptions(); renderWorkspaceIdentity();
+  // The session readout sits in the drawer head, which object selection does
+  // not repaint; without this it would keep the elapsed time from the last
+  // recorded jump instead of the current one.
+  renderInvestigationTelemetry();
   renderLive(); renderStats(); renderAttention(); renderProjectNavigator(); renderObjectNavigator(); renderObjectInspector();
 }
 function renderWorkspaceIdentity() {

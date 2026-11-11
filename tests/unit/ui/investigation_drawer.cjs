@@ -112,6 +112,18 @@ test('clearing the job scope drops the drawer selection', () => {
     'a cleared scope must not keep waiting on the previous workspace job');
 });
 
+test('the session readout follows a shared chrome refresh, not only a jump', () => {
+  const s = sandbox();
+  s.context.fixture = fixtureWith();
+  s.run('state.project=fixture;state.current="A";state.investigationEvents=[];state.investigationStartedAtMs=0;'
+    + 'recordInvestigationEvent("view","requirements");');
+  assert.match(s.node('#drawerTelemetry').textContent, /1 jumps · 1 s/);
+  s.run('const realNow = Date.now(); Date.now = () => realNow + 61_000;');
+  s.run('renderSharedChrome();');
+  assert.match(s.node('#drawerTelemetry').textContent, /1 jumps · 1 min/,
+    'an idle session must not keep the elapsed time from the last jump');
+});
+
 test('the session record counts distinct positions once', () => {
   const s = sandbox();
   s.context.fixture = fixtureWith();
