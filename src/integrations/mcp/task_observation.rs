@@ -76,7 +76,7 @@ fn projection(snapshot: MonitorJobSnapshot) -> Value {
     json!({"schema_version":1,"kind":"command_job", "task_id":snapshot.job_id,
         "workspace":snapshot.workspace,"tool":"run_command","status":snapshot.status,
         "origin":match snapshot.origin {MonitorJobOrigin::Ui=>"ui",MonitorJobOrigin::Mcp=>"mcp"},
-        "can_cancel":snapshot.can_cancel,"success":snapshot.success,"exit_code":snapshot.exit_code,
+        "can_cancel":snapshot.can_cancel,"success":snapshot.success,"exit_code":snapshot.exit_code,"signaled":snapshot.signaled,
         "queue_wait_ms":snapshot.queue_wait_ms,"timed_out":snapshot.timed_out,
         "output_incomplete":snapshot.output_incomplete,"sandbox":snapshot.sandbox,
         "error":error, "stdout":stream(snapshot.stdout), "stderr":stream(snapshot.stderr),

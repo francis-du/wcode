@@ -207,6 +207,15 @@ async function main() {
     const html=s.node('#runtimeJobDetail').innerHTML;
     assert.match(html,/Unknown/);assert.doesNotMatch(html,/NaN|undefined|null|0 ms/);
   });
+  await test('a signal kill stays distinct from a missing exit code and a real exit code', async () => {
+    const s=prepared();await discover(s);
+    await observe(s, detail({ status:'failed', success:false, signaled:true, exit_code:null }));
+    let html=s.node('#runtimeJobDetail').innerHTML;
+    assert.match(html,/signal/);assert.doesNotMatch(html,/exit —/);
+    await observe(s, detail({ status:'completed', success:true, signaled:false, exit_code:0 }));
+    html=s.node('#runtimeJobDetail').innerHTML;
+    assert.match(html,/exit 0/);assert.doesNotMatch(html,/signal/);
+  });
   console.log(JSON.stringify({ suite: 'native-jobs-ui', results }, null, 2));
   assert.ok(results.every(row => row.passed), results.filter(row => !row.passed).map(row => row.name).join('\n'));
 }

@@ -646,7 +646,7 @@ fn jobs_ui_observation_and_verification_recovery_preserve_native_authority() {
                 .as_ref()
                 .ok()
                 .and_then(|value| value["results"].as_array())
-                .is_some_and(|results| results.len() == 25
+                .is_some_and(|results| results.len() == 26
                     && results.iter().all(|item| item["passed"] == true)),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),

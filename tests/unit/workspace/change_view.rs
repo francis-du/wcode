@@ -275,6 +275,7 @@ fn probe_result(
         program: "git".to_owned(),
         args: Vec::new(),
         exit_code: Some(0),
+        signaled: false,
         success,
         process_queue_wait_ms: 0,
         stdout: stdout.to_owned(),

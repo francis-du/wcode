@@ -43,6 +43,7 @@ fn observation(origin: MonitorJobOrigin) -> MonitorJobSnapshot {
             ..Default::default()
         },
         exit_code: None,
+        signaled: None,
         success: None,
         error: None,
         queue_wait_ms: None,

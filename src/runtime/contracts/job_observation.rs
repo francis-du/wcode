@@ -22,6 +22,8 @@ pub(crate) struct MonitorJobSnapshot {
     pub(crate) stdout: MonitorJobStream,
     pub(crate) stderr: MonitorJobStream,
     pub(crate) exit_code: Option<i32>,
+    /// The process was terminated by a signal, so `exit_code` is absent.
+    pub(crate) signaled: Option<bool>,
     pub(crate) success: Option<bool>,
     pub(crate) error: Option<String>,
     /// Deterministic runner metadata retained with the completed command

@@ -85,10 +85,17 @@ pub(super) async fn collect_command_result(
         && status.is_some_and(|status| status.success());
     let raw_stdout = stdout.clone();
     let (stdout, stderr, redacted) = redact_command_streams(stdout, stderr);
+    #[cfg(unix)]
+    let signaled = status
+        .as_ref()
+        .is_some_and(|status| std::os::unix::process::ExitStatusExt::signal(status).is_some());
+    #[cfg(not(unix))]
+    let signaled = false;
     Ok(CommandResult {
         program: program.to_owned(),
         args: args.to_vec(),
         exit_code: status.and_then(|status| status.code()),
+        signaled,
         success,
         process_queue_wait_ms,
         stdout,

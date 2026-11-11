@@ -110,6 +110,7 @@ impl crate::monitor_jobs::MonitorJobAccess for MonitorTaskAccess {
         let exit_code = output
             .and_then(|output| output["exit_code"].as_i64())
             .and_then(|value| i32::try_from(value).ok());
+        let signaled = output.and_then(|output| output["signaled"].as_bool());
         let queue_wait_ms = output.and_then(|output| output["process_queue_wait_ms"].as_u64());
         let timed_out = output.and_then(|output| output["timed_out"].as_bool());
         let output_incomplete = output.and_then(|output| output["output_incomplete"].as_bool());
@@ -140,6 +141,7 @@ impl crate::monitor_jobs::MonitorJobAccess for MonitorTaskAccess {
             stdout,
             stderr,
             exit_code,
+            signaled,
             success,
             error,
             queue_wait_ms,

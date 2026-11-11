@@ -5,6 +5,10 @@ pub struct CommandResult {
     pub program: String,
     pub args: Vec<String>,
     pub exit_code: Option<i32>,
+    /// The process was terminated by a signal rather than exiting with a code.
+    /// `exit_code` is `None` in that case, so without this flag a signal kill
+    /// and an unobserved exit read the same.
+    pub signaled: bool,
     pub success: bool,
     pub process_queue_wait_ms: u64,
     pub stdout: String,
