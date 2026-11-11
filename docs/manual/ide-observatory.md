@@ -209,6 +209,15 @@ The 2026-11-02 production-bundle lifecycle controls passed 2/8 on the old code, 
 
 Verification buttons also bind the workspace, session, epoch, retained entry, task and page that rendered them. An old Cancel, Run or recovery click cannot operate on a replacement task. Identical markup retains the DOM and receives one current listener, including after ordinary observation updates; first launch and explicit retained-ID recovery remain usable. Ten production-bundle controls cover stale actions, positive flows and independent LF/CRLF guard ablations. The first eight behavior cases passed 1/8 before the binding fix and 8/8 after it. These UI bindings supplement the existing server authorization and never grant Acceptance.
 
+### Proof signal cards
+
+The Check results view carries two read-only signal cards beside the verification task. Both project facts the verification surface already owns; neither launches a check, mutates a plan or grants Acceptance.
+
+| Card | What it shows | Boundary |
+| --- | --- | --- |
+| Adaptive verification | The planner's mode, provider and precision, the base-to-planned quick-check count, the focused test with its island, phase, provider and reason, the fail-fast frontier with per-stage overall and marginal failure counts, and the cost-model replay's activation state, candidate versus baseline model, net savings, wins/ties/losses and evaluable revision count. | Planning preview only — the page does not execute these checks, and full coverage is unchanged. A failure rate over zero samples is not a measurement and stays explicit; the counts are a plan, not an execution result. |
+| Verified learning | The temporal holdout comparison of prompt-free verified co-change memory against raw-count history: coverage, hit rate, precision@K and recall@K, each with the candidate and baseline percentages, the percentage-point delta and the raw numerator and denominator. | Both model identities are named. A metric with no comparable samples stays unknown rather than rendering as zero. The comparison is a heuristic reading of verified history, not proof that the learned model is better. |
+
 ## Next priorities and tradeoffs
 
 1. **Validate source-connected attention first.** Reusing existing producers and source boundaries gives the largest immediate reduction in context switching. Preserve stable item identities, keyboard focus, incomplete coverage, and truthful empty states. A failure to refresh is not zero problems.

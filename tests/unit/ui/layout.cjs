@@ -34,6 +34,51 @@ test('a frontier stage without samples keeps its rate unmeasured',()=>{
   assert.doesNotMatch(html,/0\.0% overall failures/);
 });
 
+test('verified learning keeps a zero denominator out of the percentage',()=>{
+  const s=sandbox(false,true,{fakeTimers:true});
+  s.context.fixture={...fixture,verified_learning:{available:true,records:3,full_records:2,quick_records:1,
+    provider:'verified-change-history',retrieval_precision:'heuristic',
+    retrieval_model:'verified-context-cochange-v3',baseline_model:'raw-count-v1',
+    evaluation_method:'global-temporal-ab-v2',stores_prompts_or_chain_of_thought:false,top_k:5,
+    unique_paths:0,live_paths:0,stale_path_references:0,evaluable_records:3,
+    records_with_prediction:0,baseline_records_with_prediction:0,
+    evaluation_cases:0,prediction_cases:0,baseline_prediction_cases:0,
+    hit_cases:0,baseline_hit_cases:0,predictions:0,baseline_predictions:0,
+    true_positives:0,baseline_true_positives:0,expected_targets:0,
+    coverage_percent:0,baseline_coverage_percent:0,coverage_delta_percent_points:0,
+    hit_rate_percent:0,baseline_hit_rate_percent:0,hit_rate_delta_percent_points:0,
+    precision_at_k_percent:0,baseline_precision_at_k_percent:0,precision_at_k_delta_percent_points:0,
+    recall_at_k_percent:0,baseline_recall_at_k_percent:0,recall_at_k_delta_percent_points:0}};
+  s.run('state.project=fixture;state.language="en";renderVerifiedLearning();');
+  const html=s.node('#verifiedLearning').innerHTML;
+  assert.doesNotMatch(html,/0\.0%/,'a zero denominator cannot read as a measured zero percent');
+  assert.match(html,/—/,'an unmeasured percentage stays an em dash');
+  assert.match(html,/0\/0/,'the observed counts stay beside the unmeasured rate');
+});
+
+test('verified learning reports a measured percentage next to its counts',()=>{
+  const s=sandbox(false,true,{fakeTimers:true});
+  s.context.fixture={...fixture,verified_learning:{available:true,records:3,full_records:2,quick_records:1,
+    provider:'verified-change-history',retrieval_precision:'heuristic',
+    retrieval_model:'verified-context-cochange-v3',baseline_model:'raw-count-v1',
+    evaluation_method:'global-temporal-ab-v2',stores_prompts_or_chain_of_thought:false,top_k:5,
+    unique_paths:0,live_paths:0,stale_path_references:0,evaluable_records:3,
+    records_with_prediction:2,baseline_records_with_prediction:2,
+    evaluation_cases:10,prediction_cases:8,baseline_prediction_cases:5,
+    hit_cases:6,baseline_hit_cases:3,predictions:4,baseline_predictions:2,
+    true_positives:3,baseline_true_positives:1,expected_targets:6,
+    coverage_percent:80,baseline_coverage_percent:50,coverage_delta_percent_points:30,
+    hit_rate_percent:75,baseline_hit_rate_percent:60,hit_rate_delta_percent_points:15,
+    precision_at_k_percent:75,baseline_precision_at_k_percent:50,precision_at_k_delta_percent_points:25,
+    recall_at_k_percent:50,baseline_recall_at_k_percent:16.7,recall_at_k_delta_percent_points:33.3}};
+  s.run('state.project=fixture;state.language="en";renderVerifiedLearning();');
+  const html=s.node('#verifiedLearning').innerHTML;
+  assert.match(html,/80\.0%/);
+  assert.match(html,/75\.0%/);
+  assert.match(html,/50\.0%/);
+  assert.match(html,/8\/10/);
+});
+
 fs.mkdirSync(path.dirname(output),{recursive:true});
 fs.writeFileSync(output,`<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>${styles}</style></head><body><main style="padding:20px">${views}</main></body></html>`);
 console.log(JSON.stringify({suite:'observatory-layout',results:tests,fixture:output},null,2));

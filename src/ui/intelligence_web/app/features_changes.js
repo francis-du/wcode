@@ -216,18 +216,39 @@ function renderVerifiedLearning() {
     );
     return;
   }
-  const pct = (value) => `${Number(value || 0).toFixed(1)}%`;
-  const pp = (value) => {
-    const number = Number(value || 0);
-    return `${number >= 0 ? "+" : ""}${number.toFixed(1)} pp`;
-  };
+  // A percentage over a zero denominator is not a measurement, so it stays an
+  // em dash next to the counts that were actually observed.
+  const pct = (value, denominator) =>
+    Number(denominator) > 0 ? `${Number(value || 0).toFixed(1)}%` : "—";
+  const pp = (value, ...denominators) =>
+    denominators.every(denominator => Number(denominator) > 0)
+      ? `${Number(value || 0) >= 0 ? "+" : ""}${Number(value || 0).toFixed(1)} pp`
+      : "—";
+  const metric = (label, value, denominator, baseline, baselineDenominator, delta, detail) =>
+    [label, pct(value, denominator), pct(baseline, baselineDenominator), pp(delta, denominator, baselineDenominator), detail];
   const cards = [
-    [localized("Coverage", "覆盖率"), learning.coverage_percent, learning.baseline_coverage_percent, learning.coverage_delta_percent_points, localized(`${learning.prediction_cases}/${learning.evaluation_cases} candidate cases vs ${learning.baseline_prediction_cases}/${learning.evaluation_cases} baseline`, `候选模型 ${learning.prediction_cases}/${learning.evaluation_cases}，基线 ${learning.baseline_prediction_cases}/${learning.evaluation_cases}`)],
-    [localized("Hit rate", "命中率"), learning.hit_rate_percent, learning.baseline_hit_rate_percent, learning.hit_rate_delta_percent_points, localized(`${learning.hit_cases}/${learning.prediction_cases} candidate hits vs ${learning.baseline_hit_cases}/${learning.baseline_prediction_cases} baseline`, `候选模型 ${learning.hit_cases}/${learning.prediction_cases} 命中，基线 ${learning.baseline_hit_cases}/${learning.baseline_prediction_cases}`)],
-    [`Precision@${learning.top_k}`, learning.precision_at_k_percent, learning.baseline_precision_at_k_percent, learning.precision_at_k_delta_percent_points, localized(`${learning.true_positives}/${learning.predictions} candidate paths vs ${learning.baseline_true_positives}/${learning.baseline_predictions} baseline`, `候选模型 ${learning.true_positives}/${learning.predictions}，基线 ${learning.baseline_true_positives}/${learning.baseline_predictions}`)],
-    [`Recall@${learning.top_k}`, learning.recall_at_k_percent, learning.baseline_recall_at_k_percent, learning.recall_at_k_delta_percent_points, localized(`${learning.true_positives}/${learning.expected_targets} candidate targets vs ${learning.baseline_true_positives}/${learning.expected_targets} baseline`, `候选模型找回 ${learning.true_positives}/${learning.expected_targets}，基线 ${learning.baseline_true_positives}/${learning.expected_targets}`)],
+    metric(localized("Coverage", "覆盖率"),
+      learning.coverage_percent, learning.evaluation_cases,
+      learning.baseline_coverage_percent, learning.evaluation_cases,
+      learning.coverage_delta_percent_points,
+      localized(`${learning.prediction_cases}/${learning.evaluation_cases} candidate cases vs ${learning.baseline_prediction_cases}/${learning.evaluation_cases} baseline`, `候选模型 ${learning.prediction_cases}/${learning.evaluation_cases}，基线 ${learning.baseline_prediction_cases}/${learning.evaluation_cases}`)),
+    metric(localized("Hit rate", "命中率"),
+      learning.hit_rate_percent, learning.prediction_cases,
+      learning.baseline_hit_rate_percent, learning.baseline_prediction_cases,
+      learning.hit_rate_delta_percent_points,
+      localized(`${learning.hit_cases}/${learning.prediction_cases} candidate hits vs ${learning.baseline_hit_cases}/${learning.baseline_prediction_cases} baseline`, `候选模型 ${learning.hit_cases}/${learning.prediction_cases} 命中，基线 ${learning.baseline_hit_cases}/${learning.baseline_prediction_cases}`)),
+    metric(`Precision@${learning.top_k}`,
+      learning.precision_at_k_percent, learning.predictions,
+      learning.baseline_precision_at_k_percent, learning.baseline_predictions,
+      learning.precision_at_k_delta_percent_points,
+      localized(`${learning.true_positives}/${learning.predictions} candidate paths vs ${learning.baseline_true_positives}/${learning.baseline_predictions} baseline`, `候选模型 ${learning.true_positives}/${learning.predictions}，基线 ${learning.baseline_true_positives}/${learning.baseline_predictions}`)),
+    metric(`Recall@${learning.top_k}`,
+      learning.recall_at_k_percent, learning.expected_targets,
+      learning.baseline_recall_at_k_percent, learning.expected_targets,
+      learning.recall_at_k_delta_percent_points,
+      localized(`${learning.true_positives}/${learning.expected_targets} candidate targets vs ${learning.baseline_true_positives}/${learning.expected_targets} baseline`, `候选模型找回 ${learning.true_positives}/${learning.expected_targets}，基线 ${learning.baseline_true_positives}/${learning.expected_targets}`)),
   ].map(([label, value, baseline, delta, detail]) =>
-    `<div class="info-card"><b>${esc(label)}</b><div class="metric">${esc(pct(value))}</div><div class="panel-meta">${esc(localized(`baseline ${pct(baseline)} · Δ ${pp(delta)}`, `基线 ${pct(baseline)} · Δ ${pp(delta)}`))}<br>${esc(detail)}</div></div>`
+    `<div class="info-card"><b>${esc(label)}</b><div class="metric">${esc(value)}</div><div class="panel-meta">${esc(localized(`baseline ${baseline} · Δ ${delta}`, `基线 ${baseline} · Δ ${delta}`))}<br>${esc(detail)}</div></div>`
   ).join("");
   const history = localized(
     `${learning.records} verified records · ${learning.full_records} full / ${learning.quick_records} quick · ${learning.live_paths}/${learning.unique_paths} paths live · ${learning.stale_path_references} stale references ignored`,
