@@ -39,6 +39,16 @@ function codeGraphPathChanged(node) {
   const path = codeGraphPath(node);
   return Boolean(path && (state.project?.changes || []).some(change => change.path === path));
 }
+// A graph loaded as "latest" that no longer matches the newest capture is
+// historical, not current. A pinned snapshot is a deliberate comparison and
+// stays labelled by its own selector.
+function codeGraphFreshness(snapshotId) {
+  const latest = (state.project?.history || []).find(item =>
+    item && typeof item === "object" && !Array.isArray(item) &&
+    typeof item.id === "string" && item.id.length > 0 &&
+    Number.isFinite(Number(item.captured_at_ms)))?.id || "";
+  return { latest, stale: Boolean(!state.codeGraphSnapshot && latest && snapshotId && snapshotId !== latest) };
+}
 function syncCodeGraphSnapshots() {
   if (!els.codeGraphSnapshot) return;
   const history = (state.project?.history || []).filter(item =>
@@ -505,14 +515,8 @@ function renderCodeGraph() {
   }
   captureCodeGraphViewport(graph);
   const precision = codeGraphPrecisionCounts(graph), relations = codeGraphRelationSummary(graph);
-  // A graph loaded as "latest" that no longer matches the newest capture is
-  // historical, not current. A pinned snapshot is a deliberate comparison and
-  // stays labelled by its own selector.
-  const latestSnapshot = (state.project?.history || []).find(item =>
-    item && typeof item === "object" && !Array.isArray(item) &&
-    typeof item.id === "string" && item.id.length > 0 &&
-    Number.isFinite(Number(item.captured_at_ms)))?.id || "";
-  const staleGraph = Boolean(!state.codeGraphSnapshot && latestSnapshot && graph.snapshot_id !== latestSnapshot);
+  const freshness = codeGraphFreshness(graph.snapshot_id);
+  const staleGraph = freshness.stale;
   els.codeGraphSummary.innerHTML = `<div class="code-graph-summary-main">
     <strong>${graph.nodes.length} ${esc(localized("nodes", "个节点"))} · ${graph.edges.length} ${esc(localized("edges", "条边"))}</strong>
     <span class="code-graph-chip warn">${graph.upstream_nodes || 0} ${esc(localized("upstream", "上游"))}</span>
@@ -523,7 +527,7 @@ function renderCodeGraph() {
   els.codeGraphMap.innerHTML = `${codeGraphDiagram(graph)}
     <div class="code-graph-context">
       <div class="code-graph-context-card"><strong>${esc(localized("Graph contract", "图谱契约"))}</strong><span>${esc(localized("Every relation keeps provider and precision. Syntax, semantic and runtime evidence are never flattened into one confidence claim.", "每条关系保留 provider 与 precision；syntax、semantic、runtime 证据不会被混成一个置信结论。"))}</span></div>
-      <div class="code-graph-context-card"><strong>${esc(localized("Bounded exploration", "有界探索"))}</strong><span>${esc(localized(`Depth ${graph.depth} · mode ${graph.mode} · snapshot ${graph.snapshot_id}`, `深度 ${graph.depth} · 模式 ${graph.mode} · 快照 ${graph.snapshot_id}`))}${staleGraph ? ` · ${esc(localized("current", "当前"))} ${latestSnapshot}` : ""}</span></div>
+      <div class="code-graph-context-card"><strong>${esc(localized("Bounded exploration", "有界探索"))}</strong><span>${esc(localized(`Depth ${graph.depth} · mode ${graph.mode} · snapshot ${graph.snapshot_id}`, `深度 ${graph.depth} · 模式 ${graph.mode} · 快照 ${graph.snapshot_id}`))}${staleGraph ? ` · ${esc(localized("current", "当前"))} ${freshness.latest}` : ""}</span></div>
     </div>`;
   els.codeGraphMap.querySelectorAll("[data-code-node]").forEach(node => {
     node.addEventListener("click", () => selectCodeGraphNode(node.dataset.codeNode));

@@ -142,12 +142,14 @@ function renderCodeGraphOverview() {
   }
   captureCodeGraphViewport();
   const languageCount = Object.keys(overview.languages || {}).length;
+  const freshness = codeGraphFreshness(overview.snapshot_id);
   els.codeGraphSummary.innerHTML = `<div class="code-graph-summary-main">
     <strong>${esc(localized("Repository overview", "仓库概览"))} · ${overview.files_indexed}/${overview.files_considered} ${esc(localized("files indexed", "个文件已索引"))}</strong>
     <span class="code-graph-chip">${overview.total_nodes} ${esc(localized("snapshot nodes", "快照节点"))}</span>
     <span class="code-graph-chip">${overview.total_edges} ${esc(localized("snapshot edges", "快照关系"))}</span>
     <span class="code-graph-chip accent">${languageCount} ${esc(localized("languages", "种语言"))}</span>
     ${overview.truncated ? `<span class="code-graph-chip warn">${esc(localized("bounded / truncated", "有界 / 已截断"))}</span>` : ""}
+    ${freshness.stale ? `<span class="code-graph-chip warn" title="${esc(localized("Current snapshot", "当前快照"))} ${freshness.latest}">${esc(t("stale"))} · ${esc(freshness.latest.slice(0, 10))}</span>` : ""}
   </div><div class="pills">${Object.entries(overview.languages || {}).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([language,count])=>`<span class="code-graph-chip">${esc(language)} ${count}</span>`).join("")}</div>`;
   els.codeGraphMap.innerHTML = codeGraphOverviewDiagram(overview);
   els.codeGraphMap.querySelectorAll("[data-code-overview-node]").forEach(element => {

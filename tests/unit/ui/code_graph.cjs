@@ -218,6 +218,15 @@ async function run(){
     assert.match(html,/rust · 2/);assert.match(html,/java-script · 1/);assert.match(html,/python · 1/);
   });
 
+  await test('repository overview marks a latest reading the newest capture replaced',async()=>{
+    const s=sandbox();s.context.ov=overview('A',{snapshot_id:'GRAPH-old'});
+    s.run('state.current="A";state.codeGraphView="overview";state.codeGraphOverview=ov;state.codeGraphWorkspace="A";'
+      + 'state.project={history:[{id:"GRAPH-new",captured_at_ms:2},{id:"GRAPH-old",captured_at_ms:1}]};renderCodeGraphOverview();');
+    const summary=s.node('#codeGraphSummary').innerHTML;
+    assert.match(summary,/stale/i);
+    assert.match(summary,/GRAPH-new/,'the stale chip names the snapshot that is current now');
+  });
+
   await test('repository overview repaint cache follows live language changes',async()=>{
     const s=sandbox();s.context.ov=overview();
     s.run('state.current="A";state.workspaceTab="architecture";state.architectureView="codegraph";state.codeGraphView="overview";state.codeGraphOverview=ov;state.codeGraphWorkspace="A";state.language="en";maybeLoadCodeGraph();');
