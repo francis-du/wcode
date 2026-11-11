@@ -43,3 +43,14 @@ The raw report was read and checked, but archival execution was blocked; it rema
 The attachment-generation environment built a 10-page English PDF from the matching manuscript with Pandoc 3.1.11.1 and XeLaTeX (TeX Live 2025/dev/Debian). The log reported no overfull or missing-character warnings. All ten pages were rendered for layout review. Build fingerprints accompany the attachment package. This is not a repository-host build: Pandoc and TeX engines were not available on that host's PATH.
 
 No commit, push, website deployment, paper submission, model-driven evaluation, or new Fitness run was performed for this revision. Writing remained AI-assisted.
+
+## Current verification state (checked 2026-11-12)
+
+The checks below were run on the current tree. They concern artifact and repository consistency, not a new Check history experiment.
+
+- `python3 tests/paper_artifacts.py` exits 0 with `raw_report_unavailable`: the canonical raw report is still absent, so raw-sample and control verification stay skipped and the manuscript is checked against the retained selected fields only.
+- `cargo fmt --all -- --check` and `cargo clippy --locked --all-targets -- -D warnings` are clean, and `cargo test --locked --test documentation_layout` passes 8 tests.
+- `node tests/release_audit.cjs --require-clean` passes all 300 distinct adversarial rounds with stable inputs and a clean Git tree.
+- The macOS, Linux and Windows archives for v0.9.12 were published and re-verified from fresh downloads by the release workflow.
+
+The September 18 record above still stands: a frozen source artifact, independent holdout, controlled baselines and fixed-model task evaluation remain outstanding research work.
