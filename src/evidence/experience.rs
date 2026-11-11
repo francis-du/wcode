@@ -396,16 +396,17 @@ impl NormalizedCochangeModel {
         self.scale *= factor;
         self.last_timestamp_ms = Some(timestamp_ms);
         if self.scale < 1e-12 {
-            // Renormalize so newly learned weights stay representable. Every
-            // stored value is multiplied by the same constant, so all ratios
-            // (and therefore the ranking) are unchanged.
-            let inverse = 1.0 / self.scale;
+            // Fold the accumulated decay into the stored weights so the
+            // invariant `true weight = stored * scale` still holds once scale
+            // resets to one. Dividing instead would multiply every true weight
+            // by 1/scale^2 -- reviving stale evidence by orders of magnitude --
+            // and an underflowed scale would turn it into infinities.
             for support in self.path_support.values_mut() {
-                *support *= inverse;
+                *support *= self.scale;
             }
             for candidates in self.cochange.values_mut() {
                 for weight in candidates.values_mut() {
-                    *weight *= inverse;
+                    *weight *= self.scale;
                 }
             }
             self.scale = 1.0;
@@ -785,3 +786,7 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
 #[cfg(test)]
 #[path = "../../tests/unit/evidence/experience.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/evidence/experience_decay.rs"]
+mod decay_tests;
