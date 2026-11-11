@@ -77,7 +77,13 @@ const consistencyRows = () => {
           const stale = plan.revision != null && current != null
             && (plan.revision.code !== current.code
               || (plan.revision.design ?? null) !== (current.design ?? null));
-          return `${plan.id}${stale ? ` [${t("superseded revision")}]` : ""} (${detail})`;
+          // The Worklist association is declared, so an absent one is stated
+          // rather than left implied by the plan's own task list.
+          const worklist = plan.worklist_item_ids || [];
+          const worklistText = worklist.length
+            ? `${t("Worklist")}: ${worklist.slice(0, 4).join(", ")}${worklist.length > 4 ? ` +${worklist.length - 4}` : ""}`
+            : t("no Worklist item");
+          return `${plan.id}${stale ? ` [${t("superseded revision")}]` : ""} (${detail} · ${worklistText})`;
         });
     rows.push({
       id: requirement.id,

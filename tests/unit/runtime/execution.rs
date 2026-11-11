@@ -492,6 +492,7 @@ fn scope_steering_against_bound_plan_requires_replan() {
         impacted_acceptance: vec![],
         implementation_tasks: vec![],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-steering".into(),
             workspace: "demo".into(),

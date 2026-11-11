@@ -11,6 +11,13 @@ pub(super) async fn change_intelligence_tool(
     if name == "risk_status" {
         super::leaf_intelligence::detail_arg(args)?;
     }
+    // The Worklist association is validated against the durable Worklist before
+    // a repository scan runs, so a bad item id fails closed.
+    let worklist_item_ids = if name == "reconciliation_plan" {
+        optional_string_array_arg(args, "worklist_item_ids", 64)?
+    } else {
+        Vec::new()
+    };
     let timeout_seconds = bounded_usize_arg_range(args, "timeout_seconds", 30, 1, 120)? as u64;
     let review = match state
         .harness
@@ -79,7 +86,12 @@ pub(super) async fn change_intelligence_tool(
             .and_then(|plan| serde_json::to_value(plan).map_err(Into::into)),
         "reconciliation_plan" => state
             .harness
-            .reconciliation_plan(workspace_id.clone(), &workspace, &review)
+            .reconciliation_plan(
+                workspace_id.clone(),
+                &workspace,
+                &review,
+                &worklist_item_ids,
+            )
             .and_then(|plan| serde_json::to_value(plan).map_err(Into::into)),
         _ => return Err(format!("unknown change intelligence tool: {name}")),
     };

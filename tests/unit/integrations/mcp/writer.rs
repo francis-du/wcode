@@ -57,6 +57,7 @@ fn writer_plan(workspace_id: &str) -> ReconciliationPlan {
             depends_on: vec![],
         }],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-writer".into(),
             workspace: workspace_id.into(),

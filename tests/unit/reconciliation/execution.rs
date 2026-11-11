@@ -28,6 +28,7 @@ fn execution_state_survives_a_fresh_load() {
             depends_on: vec![],
         }],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-exec".into(),
             workspace: "demo".into(),
@@ -79,6 +80,7 @@ fn batch_load_uses_one_exact_latest_snapshot_per_plan() {
             depends_on: vec![],
         }],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-exec".into(),
             workspace: "demo".into(),
@@ -155,6 +157,7 @@ fn concurrent_scoped_claim_transactions_preserve_both_writers_and_monotonic_revi
             },
         ],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-concurrent-writers".into(),
             workspace: "demo".into(),
@@ -261,6 +264,7 @@ fn prune_plan(id: &str) -> ReconciliationPlan {
             depends_on: vec![],
         }],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: format!("VP-{id}"),
             workspace: "demo".into(),

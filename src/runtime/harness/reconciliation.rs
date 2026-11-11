@@ -6,6 +6,7 @@ impl ToolHarness {
         workspace_id: impl Into<String>,
         workspace: &Workspace,
         review: &ChangeReviewReport,
+        worklist_item_ids: &[String],
     ) -> Result<ReconciliationPlan> {
         let (profile, _) = self.load_project_profile(workspace)?;
         let known_checks = harness_profile::known_checks_from_profile(&profile);
@@ -13,10 +14,13 @@ impl ToolHarness {
         self.intelligence.reconciliation_plan(
             workspace_id,
             workspace,
-            &self.code_index,
-            &known_checks,
-            review,
-            &check_plans,
+            crate::intelligence::ReconciliationPlanInputs {
+                code_index: &self.code_index,
+                known_checks: &known_checks,
+                review,
+                check_plans: &check_plans,
+                worklist_item_ids,
+            },
         )
     }
 

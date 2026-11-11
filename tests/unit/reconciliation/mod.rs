@@ -43,6 +43,7 @@ fn plan_validation_rejects_dependency_cycles() {
             },
         ],
         change_intents: Vec::new(),
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-cycle".into(),
             workspace: "wcode".into(),
@@ -106,6 +107,7 @@ fn execution_enforces_dependencies_retries_and_system_evidence_gates() {
             },
         ],
         change_intents: Vec::new(),
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-test".into(),
             workspace: "wcode".into(),
@@ -217,6 +219,7 @@ fn execution_allows_parallel_reviews_but_only_one_writer_claim() {
             task("RT-review-b", ReconciliationTaskKind::Review),
         ],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-ownership".into(),
             workspace: "demo".into(),
@@ -295,6 +298,7 @@ fn execution_allows_non_overlapping_scoped_writers_and_rejects_overlap() {
             task("RT-broad", None),
         ],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-scoped-writers".into(),
             workspace: "demo".into(),
@@ -367,4 +371,51 @@ fn writer_scope_aliases_follow_case_sensitive_and_insensitive_filesystems() {
     ));
     assert!(!scope_contains_with_case("src/Foo", "src/Foobar", true));
     assert!(!scope_contains_with_case("src/Foo.rs", "src/foo.rs", false));
+}
+
+#[test]
+fn plan_validation_bounds_the_declared_worklist_association() {
+    let plan = |worklist_item_ids: Vec<String>| ReconciliationPlan {
+        id: "RP-worklist".into(),
+        workspace: "wcode".into(),
+        risk_level: RiskLevel::Low,
+        design_changes: Vec::new(),
+        drift_ids: Vec::new(),
+        impacted_components: Vec::new(),
+        impacted_symbols: Vec::new(),
+        impacted_tests: Vec::new(),
+        impacted_acceptance: Vec::new(),
+        implementation_tasks: Vec::new(),
+        change_intents: Vec::new(),
+        worklist_item_ids,
+        verification_plan: VerificationPlan {
+            id: "VP-worklist".into(),
+            workspace: "wcode".into(),
+            subject: "REQ-worklist".into(),
+            revision: None,
+            risk_level: RiskLevel::Low,
+            policy: "low".into(),
+            deterministic_level: "full".into(),
+            required_checks: None,
+            deterministic_checks: Vec::new(),
+            reviewer_roles: Vec::new(),
+            require_property: false,
+            require_mutation: false,
+            require_fuzz: false,
+            require_human_approval: false,
+            stage_targets: Vec::new(),
+            automation_gaps: Vec::new(),
+            job_ids: Vec::new(),
+        },
+    };
+    assert!(plan(Vec::new()).validate().is_ok());
+    assert!(plan(vec!["work-1".into()]).validate().is_ok());
+    assert_eq!(
+        plan(vec!["".into()]).validate(),
+        Err(ReconciliationError::InvalidPlan)
+    );
+    assert_eq!(
+        plan(vec!["work-1".into(), "work-1".into()]).validate(),
+        Err(ReconciliationError::InvalidPlan)
+    );
 }

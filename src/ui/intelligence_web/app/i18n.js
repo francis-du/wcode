@@ -101,6 +101,8 @@ const translations = {
     "Unable to update authorizations": "无法更新授权请求",
     "Unable to update access": "无法更新访问配置",
     "Workspace added": "工作区已添加",
+    "Worklist": "工作队列",
+    "no Worklist item": "未关联工作队列项",
     "Command authorized": "命令已授权",
     "Command restored": "命令已恢复",
     "Command revoked": "命令已显式撤销",

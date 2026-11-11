@@ -180,7 +180,7 @@ fn reconciliation_and_verification_bind_identical_required_checks() {
             .verification_plan("proof", &workspace, &review)
             .unwrap();
         let reconciliation = harness
-            .reconciliation_plan("proof", &workspace, &review)
+            .reconciliation_plan("proof", &workspace, &review, &[])
             .unwrap();
         assert_eq!(
             standalone.revision,
@@ -242,7 +242,7 @@ fn observatory_reports_the_reconciliation_plan_that_claims_drift() {
     let mut review = clean_review();
     review.risk_level = "high".into();
     let plan = harness
-        .reconciliation_plan("proof", &workspace, &review)
+        .reconciliation_plan("proof", &workspace, &review, &[])
         .unwrap();
     assert!(
         !plan.drift_ids.is_empty(),
@@ -384,5 +384,58 @@ fn current_observatory_plans_require_both_code_and_design_revision() {
             .len(),
         1,
         "old plan remains in history"
+    );
+}
+
+#[test]
+fn reconciliation_plan_declares_and_validates_its_worklist_association() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join(".wcode/design")).unwrap();
+    fs::write(
+        root.path().join(".wcode/project.yaml"),
+        "schema_version: 1\nname: proof-fixture\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join(".wcode/design/product.yaml"),
+        "schema_version: 1\nid: product:demo\nname: Demo\nvision: Initial contract\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join(".wcode/design/acceptance.yaml"),
+        "- schema_version: 1\n  id: AC-CHECK\n  title: Check\n  statement: Check the implementation.\n  verification:\n    - kind: check\n      id: rust-test\n",
+    )
+    .unwrap();
+    fs::write(root.path().join("main.rs"), "fn main() {}\n").unwrap();
+    let workspace = Workspace::new(root.path(), true, false).unwrap();
+    let harness = ToolHarness::new(2).unwrap();
+    crate::worklist::update(
+        &workspace,
+        crate::worklist::WorklistUpdate {
+            expected_revision: 0,
+            goal: Some("ship durable execution".to_owned()),
+            restart: false,
+            items: vec![crate::worklist::WorkItemPatch {
+                write_paths: None,
+                id: "work-1".to_owned(),
+                title: Some("Build the core".to_owned()),
+                status: Some(crate::worklist::WorkItemStatus::Pending),
+                depends_on: None,
+                note: None,
+            }],
+        },
+    )
+    .unwrap();
+
+    let review = clean_review();
+    let plan = harness
+        .reconciliation_plan("proof", &workspace, &review, &["work-1".into()])
+        .unwrap();
+    assert_eq!(plan.worklist_item_ids, vec!["work-1".to_owned()]);
+
+    let error = harness.reconciliation_plan("proof", &workspace, &review, &["missing".into()]);
+    assert!(
+        error.is_err(),
+        "a plan that names an unknown Worklist item must fail closed"
     );
 }

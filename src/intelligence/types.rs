@@ -893,6 +893,10 @@ pub struct ProjectReconciliationPlanView {
     pub id: String,
     pub drift_ids: Vec<String>,
     pub implementation_tasks: Vec<crate::reconcile::ReconciliationTask>,
+    /// Durable Worklist items the plan declares it addresses. Empty means the
+    /// plan is not associated with any Worklist item, which the matrix reports
+    /// as unassociated rather than leaving the linkage implied.
+    pub worklist_item_ids: Vec<String>,
     // The revision the plan's verification is bound to. A plan bound to another
     // revision is history, not the current input, even when its drift ids still
     // match a finding that was re-derived later.

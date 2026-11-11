@@ -90,6 +90,20 @@ test('a requirement row links the drift to the convergence plan that claims it',
   assert.match(html, /PLAN-2/);
   assert.match(html, /2 tasks/, 'a plan without recorded execution state falls back to its declared task count');
   assert.doesNotMatch(html, /no convergence plan references this drift/);
+  assert.match(html, /no Worklist item/, 'a plan with no declared association says so');
+});
+
+test('a convergence plan names the Worklist items it declares', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(),
+    reconciliation: [{ id: 'PLAN-1', drift_ids: ['D-1'],
+      worklist_item_ids: ['work-1', 'work-2', 'work-3'],
+      implementation_tasks: [
+        { id: 'T-1', kind: 'implementation', subject: 'Fix the queue', description: '', write_scopes: [], depends_on: [] }] }] };
+  s.run('state.project=fixture;state.consistencyKind="requirement";state.consistencyState="all";renderConsistencyMatrix();');
+  const html = s.node('#consistencySection').innerHTML;
+  assert.match(html, /Worklist: work-1, work-2, work-3/);
+  assert.doesNotMatch(html, /no Worklist item/);
 });
 
 test('a plan bound to another revision is marked superseded instead of reading as current', () => {

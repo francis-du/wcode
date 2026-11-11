@@ -23,6 +23,7 @@ fn plan(bound: Revision) -> ReconciliationPlan {
         impacted_acceptance: vec!["AC-CORE-001".into(), "AC-CORE-001".into()],
         implementation_tasks: vec![],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-approved".into(),
             workspace: "demo".into(),

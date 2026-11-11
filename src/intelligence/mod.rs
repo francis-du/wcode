@@ -170,10 +170,13 @@ const MAX_TRACE_DIAGNOSTICS: usize = 128;
 pub(crate) mod acceptance_plan;
 #[path = "runtime/approval.rs"]
 mod approval_runtime;
+#[path = "runtime/context_query.rs"]
+mod context_query;
 #[path = "runtime/design.rs"]
 mod design_runtime;
 #[path = "runtime/reconcile.rs"]
 mod reconcile_runtime;
+pub(crate) use reconcile_runtime::ReconciliationPlanInputs;
 #[path = "runtime/semantic.rs"]
 mod semantic_runtime;
 #[path = "runtime/trace_cache.rs"]

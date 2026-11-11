@@ -138,6 +138,7 @@ fn human_decision_state() -> (Arc<AppState>, tempfile::TempDir) {
         impacted_acceptance: vec![],
         implementation_tasks: vec![],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: plan,
     };
     crate::reconciliation_store::persist(&workspace, &reconciliation).unwrap();

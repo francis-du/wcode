@@ -21,6 +21,7 @@ fn approval_plan(workspace_id: &str, revision: Revision) -> ReconciliationPlan {
             depends_on: vec![],
         }],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-runtime-approval".into(),
             workspace: workspace_id.into(),

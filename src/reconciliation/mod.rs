@@ -100,6 +100,11 @@ pub struct ReconciliationPlan {
     pub implementation_tasks: Vec<ReconciliationTask>,
     pub change_intents: Vec<ChangeIntent>,
     pub verification_plan: VerificationPlan,
+    /// Worklist items this plan addresses, by their stable item id. The plan is
+    /// the convergence record; the Worklist is the durable work queue, and the
+    /// association is declared rather than inferred from a title or timestamp.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worklist_item_ids: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -504,6 +509,13 @@ impl ReconciliationPlan {
             || self.impacted_symbols.len() > 2_000
             || self.impacted_tests.len() > 2_000
             || self.impacted_acceptance.len() > 2_000
+            || self.worklist_item_ids.len() > 64
+        {
+            return Err(ReconciliationError::InvalidPlan);
+        }
+        if self.worklist_item_ids.iter().any(|id| id.trim().is_empty())
+            || self.worklist_item_ids.iter().collect::<HashSet<_>>().len()
+                != self.worklist_item_ids.len()
         {
             return Err(ReconciliationError::InvalidPlan);
         }

@@ -18,6 +18,7 @@ fn reconciliation_plan_round_trips_from_persistent_store() {
         impacted_acceptance: vec![],
         implementation_tasks: vec![],
         change_intents: vec![],
+        worklist_item_ids: Vec::new(),
         verification_plan: VerificationPlan {
             id: "VP-fixture".into(),
             workspace: "demo".into(),

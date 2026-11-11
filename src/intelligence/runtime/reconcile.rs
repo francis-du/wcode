@@ -1,140 +1,18 @@
+use super::context_query::{
+    context_query_prefers_tests, context_symbol_rank, is_context_symbol_stopword,
+    literal_symbol_queries,
+};
 use super::*;
 
-fn literal_symbol_queries(query: &str) -> Vec<String> {
-    let code_literals = crate::intelligence::code_query_literals(query);
-    if !code_literals.is_empty() {
-        // The literal parser and final search plan already cap this at eight.
-        return code_literals;
-    }
-    query
-        .split(|ch: char| !ch.is_alphanumeric() && !matches!(ch, '_' | ':' | '.'))
-        .map(|word| word.trim_matches([':', '.']))
-        .filter(|word| !word.is_empty() && *word == query.trim())
-        .take(1)
-        .map(str::to_ascii_lowercase)
-        .collect()
-}
-
-fn is_context_symbol_stopword(token: &str) -> bool {
-    matches!(
-        token,
-        "find"
-            | "where"
-            | "which"
-            | "show"
-            | "please"
-            | "check"
-            | "inspect"
-            | "understand"
-            | "explain"
-            | "code"
-            | "function"
-            | "method"
-            | "class"
-            | "file"
-            | "module"
-            | "behavior"
-            | "logic"
-            | "implementation"
-            | "implement"
-            | "change"
-            | "modify"
-            | "update"
-            | "fix"
-            | "issue"
-            | "bug"
-            | "performance"
-            | "optimize"
-            | "fast"
-            | "faster"
-            | "call"
-            | "calls"
-            | "caller"
-            | "callee"
-            | "reference"
-            | "references"
-            | "usage"
-            | "impact"
-    )
-}
-
-fn context_symbol_rank(
-    symbol: &serde_json::Value,
-    literals: &[String],
-    queries: &[String],
-    prefer_test_symbols: bool,
-) -> (u8, usize, usize, usize) {
-    let name = symbol["name"].as_str().unwrap_or("").to_ascii_lowercase();
-    let qualified = symbol["qualified_name"]
-        .as_str()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let path = symbol["path"].as_str().unwrap_or("").to_ascii_lowercase();
-    let signature = symbol["signature"]
-        .as_str()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let query_hits = queries
-        .iter()
-        .filter(|term| {
-            name.contains(term.as_str())
-                || qualified.contains(term.as_str())
-                || signature.contains(term.as_str())
-        })
-        .count();
-    let test_penalty = usize::from(!prefer_test_symbols && context_symbol_test_path(&path));
-    let coverage_rank = usize::MAX.saturating_sub(query_hits);
-    for (class, terms, exact) in [
-        (0, literals, true),
-        (1, queries, true),
-        (2, literals, false),
-        (3, queries, false),
-    ] {
-        if let Some(index) = terms.iter().position(|term| {
-            if exact {
-                name == *term || qualified == *term
-            } else {
-                name.contains(term.as_str())
-                    || qualified.contains(term.as_str())
-                    || signature.contains(term.as_str())
-                    || path.contains(term.as_str())
-            }
-        }) {
-            let class = if literals.is_empty() && matches!(class, 1 | 3) {
-                1
-            } else {
-                class
-            };
-            return (class, test_penalty, coverage_rank, index);
-        }
-    }
-    (4, test_penalty, coverage_rank, usize::MAX)
-}
-
-fn context_symbol_test_path(path: &str) -> bool {
-    let path = path.replace('\\', "/");
-    path.starts_with("tests/")
-        || path.starts_with("test/")
-        || path.starts_with("__tests__/")
-        || path.contains("/tests/")
-        || path.contains("/__tests__/")
-}
-
-fn context_query_prefers_tests(tokens: &[String]) -> bool {
-    tokens.iter().any(|token| {
-        matches!(
-            token.as_str(),
-            "test"
-                | "tests"
-                | "testing"
-                | "regression"
-                | "verify"
-                | "verification"
-                | "测试"
-                | "回归"
-                | "验证"
-        )
-    })
+/// The inputs a convergence plan is derived from. Grouped so the builder keeps a
+/// bounded parameter list as the contract grows.
+pub(crate) struct ReconciliationPlanInputs<'a> {
+    pub code_index: &'a CodeIndex,
+    pub known_checks: &'a HashSet<String>,
+    pub review: &'a ChangeReviewReport,
+    pub check_plans: &'a VerificationCheckPlans,
+    /// Worklist items the plan declares it addresses; empty means unassociated.
+    pub worklist_item_ids: &'a [String],
 }
 
 impl SoftwareIntelligenceRuntime {
@@ -545,12 +423,41 @@ impl SoftwareIntelligenceRuntime {
         &self,
         workspace_id: impl Into<String>,
         workspace: &Workspace,
-        code_index: &CodeIndex,
-        known_checks: &HashSet<String>,
-        review: &ChangeReviewReport,
-        check_plans: &VerificationCheckPlans,
+        inputs: ReconciliationPlanInputs<'_>,
     ) -> Result<ReconciliationPlan> {
+        let ReconciliationPlanInputs {
+            code_index,
+            known_checks,
+            review,
+            check_plans,
+            worklist_item_ids,
+        } = inputs;
         let workspace_id = workspace_id.into();
+        // The association is declared, never inferred: every named Worklist item
+        // must exist, and a workspace without a Worklist cannot take any.
+        let worklist_item_ids = {
+            let mut ids = worklist_item_ids
+                .iter()
+                .map(|id| id.trim())
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            ids.sort();
+            ids.dedup();
+            let known = crate::worklist::snapshot(workspace)?
+                .map(|worklist| {
+                    worklist
+                        .items
+                        .into_iter()
+                        .map(|item| item.id)
+                        .collect::<HashSet<_>>()
+                })
+                .unwrap_or_default();
+            if ids.iter().any(|id| !known.contains(id.as_str())) {
+                bail!("reconciliation plan names a Worklist item that does not exist");
+            }
+            ids
+        };
         let risk = self.risk_status(
             workspace_id.clone(),
             workspace,
@@ -730,6 +637,7 @@ impl SoftwareIntelligenceRuntime {
             implementation_tasks: tasks,
             change_intents: intents,
             verification_plan,
+            worklist_item_ids,
         };
         plan.validate()?;
         reconciliation_store::persist(workspace, &plan)?;
