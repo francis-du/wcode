@@ -12,6 +12,8 @@ permalink: /docs/workbench-ui-review/
 
 The workbench keeps the current workspace, source revision, snapshot state and the operator's investigation label visible across all seven pages. Navigation remembers the last supported page; unavailable local storage and invalid preferences fall back safely. The current page heading and browser title follow language and workspace changes. Keyboard users can skip directly to the active page or return to acceptance from the brand link.
 
+The main area arranges the loaded objects in a left navigator, the page in the centre and the selected object's summary in a right inspector, with the shared Problems/Jobs/Logs/Evidence panel at the bottom. The identity bar sits outside that grid, so narrowing the window reflows the columns instead of hiding the workspace, revision or connection state.
+
 Observation coverage remains available in a native disclosure. This gives the acceptance decision, task list, source inspection or requirement detail space before supporting coverage on a phone. Existing source precision, stale snapshots, failed evidence and operator permissions keep their original meanings.
 
 | Surface | Main states retained | Verification |
