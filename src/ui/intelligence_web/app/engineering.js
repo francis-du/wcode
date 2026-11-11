@@ -49,11 +49,18 @@ function renderObjectInspector() {
     const alignment = (architectureData().dependencies || [])
       .filter(edge => edge.from === component.id || edge.to === component.id)
       .map(edge => statusLabel(edge.status)).join(", ");
+    const changedPaths = (state.project?.changes || [])
+      .filter(change => (change.affected_components || []).includes(component.id))
+      .map(change => change.path)
+      .filter(Boolean);
+    const changedFiles = changedPaths.length
+      ? changedPaths.slice(0, 4).join(", ") + (changedPaths.length > 4 ? ` +${changedPaths.length - 4}` : "")
+      : localized("none", "无");
     body = `<div class="inspector-kind">${esc(localized("Component", "组件"))}</div><strong class="inspector-title">${esc(component.name || component.id)}</strong><small class="inspector-id">${esc(component.id)}</small><div class="inspector-facts">${
       objectInspectorFact(localized("Responsibilities", "职责"), num((component.responsibilities || []).length))
       + objectInspectorFact(localized("Mapped files", "映射文件"), num(component.implementation_files || 0))
       + objectInspectorFact(localized("Dependencies", "依赖状态"), alignment || "—")
-      + objectInspectorFact(localized("Changed", "已变更"), component.changed ? localized("yes", "是") : localized("no", "否"))
+      + objectInspectorFact(localized("Changed files", "变更文件"), changedFiles)
     }</div>`;
   } else if (state.codeReader?.path) {
     body = `<div class="inspector-kind">${esc(localized("Source", "源码"))}</div><strong class="inspector-title">${esc(state.codeReader.path)}</strong><div class="inspector-facts">${
