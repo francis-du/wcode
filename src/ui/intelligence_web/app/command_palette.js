@@ -131,3 +131,84 @@ const paletteExecute = (command) => {
   }
   return false;
 };
+
+// The palette's own mechanics live beside its object search so the whole
+// feature is one module rather than a search here and its dialog in runtime.
+const commandActions = () => [
+  ["overview", localized("Open acceptance", "打开变更验收"), localized("Current decision, blockers and required checks", "当前结论、阻塞原因与必需检查"), "shield"],
+  ["architecture", localized("Open architecture", "打开架构"), localized("System map and dependency evidence", "系统图谱与依赖证据"), "layers"],
+  ["activity", localized("Open task activity", "打开任务活动"), localized("Task progress and runtime work", "持久化执行与实时工作"), "monitor"],
+  ["proof", localized("Open verification evidence", "打开验证证据"), localized("Revision-bound checks and proof ledger", "版本绑定检查与证据账本"), "shield"],
+  ["changes", localized("Open changes", "打开变更"), localized("Inspect source diffs and verification impact", "检查源码差异与验证影响"), "code"],
+  ["files", localized("Browse source files", "浏览源码文件"), localized("Repository tree and protected source preview", "仓库树与受保护源码预览"), "document"],
+  ["requirements", localized("Open requirements", "打开需求"), localized("Implementation and acceptance traceability", "实现与验收追踪"), "target"],
+  ["refresh", localized("Refresh project", "刷新项目"), localized("Fetch the latest bounded snapshot", "获取最新有界项目快照"), "sync"],
+  ["access", localized("Manage access", "管理访问权限"), localized("Workspace, executable and operation policy", "工作区、可执行文件与操作策略"), "settings"],
+  ["theme", localized("Toggle theme", "切换主题"), localized("System, dark and light appearance", "系统、深色和浅色外观"), "monitor"],
+];
+function renderCommandPalette() {
+  if (!els.commandPaletteList) return;
+  const query = String(els.commandPaletteSearch?.value || "").trim().toLowerCase();
+  const matches = commandActions().concat(commandObjectActions(query))
+    .filter(item => !query || [item[1], item[2], item[4]].filter(Boolean).some(text => String(text).toLowerCase().includes(query)));
+  const limit = 100;
+  const rows = matches.slice(0, limit);
+  const omitted = matches.length - rows.length;
+  state.commandPaletteIndex = Math.min(state.commandPaletteIndex, Math.max(0, rows.length - 1));
+  const note = (omitted
+    ? `<div class="empty">${esc(localized(`${num(omitted)} more matches not shown. Narrow the search.`, `另有 ${num(omitted)} 项匹配未显示，请缩小搜索范围。`))}</div>`
+    : "") + (paletteScopeNote ? `<div class="empty">${esc(paletteScopeNote)}</div>` : "");
+  const body = rows.length
+    ? rows.map((item, index) => `<button type="button" class="command-palette-item" role="option" aria-selected="${index === state.commandPaletteIndex}" data-command="${esc(item[0])}">${uiIcon(item[3])}<span><strong>${esc(item[1])}</strong><small>${item[4] ? `${esc(item[4])} · ` : ""}${esc(item[2])}</small></span><kbd>${index < 9 ? index + 1 : ""}</kbd></button>`).join("")
+    : `<div class="empty">${esc(localized("No matching actions.", "没有匹配的操作。"))}</div>`;
+  setHtml("commandPaletteList", els.commandPaletteList, body + note, () => {
+    els.commandPaletteList.querySelectorAll("[data-command]").forEach((button, index) => button.addEventListener("click", () => { state.commandPaletteIndex = index; executeCommand(button.dataset.command); }));
+  });
+}
+function setCommandPalette(open) {
+  const wasOpen = state.commandPaletteOpen;
+  state.commandPaletteOpen = Boolean(open);
+  els.commandPalette?.classList.toggle("hidden", !state.commandPaletteOpen);
+  els.commandPalette?.setAttribute("aria-hidden", String(!state.commandPaletteOpen));
+  if (state.commandPaletteOpen) {
+    if (!wasOpen) state.commandPaletteReturnFocus = document.activeElement;
+    state.commandPaletteIndex = 0;
+    renderCommandPalette();
+    requestAnimationFrame(() => { if (state.commandPaletteOpen) els.commandPaletteSearch?.focus(); });
+  } else {
+    if (els.commandPaletteSearch) els.commandPaletteSearch.value = "";
+    const target = state.commandPaletteReturnFocus;
+    state.commandPaletteReturnFocus = null;
+    if (wasOpen) (target?.isConnected ? target : els.projectNavigator)?.focus({ preventScroll: true });
+  }
+}
+function executeCommand(command) {
+  setCommandPalette(false);
+  if (command === "refresh") { els.refresh?.click(); return; }
+  if (command === "access") { els.manage?.click(); return; }
+  if (command === "theme") { els.theme?.click(); return; }
+  if (paletteExecute(command)) return;
+  if (["overview", "architecture", "activity", "proof", "changes", "files", "requirements"].includes(command)) activateWorkspaceTab(command, { scroll: true });
+  // A command may also name a section inside a tab; those are not tabs of their
+  // own, so they resolve through the same reveal the in-page links use.
+  else if (workspaceTabForSection[command]) revealSection(command);
+}
+function wireCommandPalette() {
+  els.closeCommandPalette?.addEventListener("click", () => setCommandPalette(false));
+  els.commandPaletteSearch?.addEventListener("input", () => { state.commandPaletteIndex = 0; renderCommandPalette(); });
+  els.commandPaletteSearch?.addEventListener("keydown", event => {
+    if (event.isComposing || event.keyCode === 229) return;
+    const items = [...(els.commandPaletteList?.querySelectorAll("[data-command]") || [])];
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setCommandPalette(false); }
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); state.commandPaletteIndex = (state.commandPaletteIndex + (event.key === "ArrowDown" ? 1 : -1) + Math.max(items.length, 1)) % Math.max(items.length, 1); renderCommandPalette(); }
+    else if (event.key === "Enter" && items[state.commandPaletteIndex]) { event.preventDefault(); executeCommand(items[state.commandPaletteIndex].dataset.command); }
+  });
+  els.commandPalette?.addEventListener("keydown", event => {
+    if (!state.commandPaletteOpen || event.key !== "Tab" || event.isComposing || event.keyCode === 229) return;
+    const controls = [...els.commandPalette.querySelectorAll("button:not([disabled]), input:not([disabled])")];
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  });
+  els.commandPalette?.addEventListener("click", event => { if (event.target === els.commandPalette) setCommandPalette(false); });
+}
