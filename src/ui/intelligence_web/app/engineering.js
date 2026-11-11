@@ -14,6 +14,57 @@ function projectNavigatorItems() {
 // The left object navigator keeps the loaded objects reachable without the
 // search palette, and reuses the header navigator's item source so both
 // surfaces describe the same snapshot.
+// The right inspector keeps the selected object's identity, state and scope
+// readable without leaving the current view. It is a summary of the same
+// snapshot the views own; it does not duplicate their full detail.
+function objectInspectorFact(label, value) {
+  return `<div class="inspector-fact"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+}
+function renderObjectInspector() {
+  const host = els.objectInspector;
+  if (!host) return;
+  const project = state.project;
+  const requirement = (project?.requirements || []).find(item => item.id === state.selected);
+  const component = (architectureData().components || []).find(item => item.id === state.selectedComponent);
+  let body = "";
+  if (requirement) {
+    const drift = (requirement.drift || []).slice(0, 3).join(", ");
+    body = `<div class="inspector-kind">${esc(localized("Requirement", "需求"))}</div><strong class="inspector-title">${esc(requirement.title || requirement.id)}</strong><small class="inspector-id">${esc(requirement.id)}</small><div class="inspector-facts">${
+      objectInspectorFact(localized("Priority", "优先级"), statusLabel(requirement.priority))
+      + objectInspectorFact(localized("Convergence", "收敛状态"), statusLabel(requirement.convergence))
+      + objectInspectorFact(localized("Components", "组件"), num((requirement.components || []).length))
+      + objectInspectorFact(localized("Acceptance", "验收标准"), num((requirement.acceptance || []).length))
+      + objectInspectorFact(localized("Drift paths", "偏离路径"), drift || "—")
+      + objectInspectorFact(localized("Changed", "已变更"), requirement.changed ? localized("yes", "是") : localized("no", "否"))
+    }</div>`;
+  } else if (component) {
+    const alignment = (architectureData().dependencies || [])
+      .filter(edge => edge.from === component.id || edge.to === component.id)
+      .map(edge => statusLabel(edge.status)).join(", ");
+    body = `<div class="inspector-kind">${esc(localized("Component", "组件"))}</div><strong class="inspector-title">${esc(component.name || component.id)}</strong><small class="inspector-id">${esc(component.id)}</small><div class="inspector-facts">${
+      objectInspectorFact(localized("Responsibilities", "职责"), num((component.responsibilities || []).length))
+      + objectInspectorFact(localized("Mapped files", "映射文件"), num(component.implementation_files || 0))
+      + objectInspectorFact(localized("Dependencies", "依赖状态"), alignment || "—")
+      + objectInspectorFact(localized("Changed", "已变更"), component.changed ? localized("yes", "是") : localized("no", "否"))
+    }</div>`;
+  } else if (state.codeReader?.path) {
+    body = `<div class="inspector-kind">${esc(localized("Source", "源码"))}</div><strong class="inspector-title">${esc(state.codeReader.path)}</strong><div class="inspector-facts">${
+      objectInspectorFact(localized("Layer", "层级"), statusLabel(state.codeReader.layer))
+      + objectInspectorFact(localized("Revision", "版本"), String(state.codeReader.repositoryRevision?.code || "—").slice(0, 19))
+      + objectInspectorFact(localized("Snapshot", "快照"), String(state.codeReader.snapshotId || "—").slice(0, 16))
+    }</div>`;
+  } else if (state.changeInspection?.path) {
+    body = `<div class="inspector-kind">${esc(localized("Change", "变更"))}</div><strong class="inspector-title">${esc(state.changeInspection.path)}</strong><div class="inspector-facts">${
+      objectInspectorFact(localized("Layer", "层级"), statusLabel(state.changeInspection.layer))
+      + objectInspectorFact(localized("Status", "状态"), statusLabel(state.changeInspection.data?.status || "unknown"))
+    }</div>`;
+  }
+  if (!body) {
+    setHtml("objectInspector", host, `<p class="inspector-hint">${esc(localized("Select an object to inspect its identity, state and scope.", "选择对象以查看其身份、状态与范围。"))}</p>`);
+    return;
+  }
+  setHtml("objectInspector", host, body);
+}
 function objectNavigatorCommand(item) {
   if (item.kind === "component") return `object:component:${item.id}`;
   if (item.kind === "requirement") return `object:requirement:${item.id}`;

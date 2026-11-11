@@ -164,8 +164,14 @@
   .context-runtime .muted{max-width:100%;}
 }
 @media (pointer:coarse){.observation-disclosure>summary{min-height:44px;}}
-@media (max-width:1100px){
-  .observatory-main{grid-template-columns:minmax(0,1fr);}
+@media (max-width:1800px){
+  .observatory-main{grid-template-columns:232px minmax(0,1fr);}
   .object-navigator{grid-column:1;grid-row:auto;}
+  .object-inspector{grid-column:1/-1;grid-row:auto;}
+  #architectureSection,#overviewSection,.drawer-stack{grid-column:2;}
+}
+@media (max-width:1200px){
+  .observatory-main{grid-template-columns:minmax(0,1fr);}
+  .object-navigator,.object-inspector{grid-column:1;grid-row:auto;}
   #architectureSection,#overviewSection,.drawer-stack{grid-column:1;}
 }

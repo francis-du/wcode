@@ -112,3 +112,19 @@ test('the left object navigator lists loaded objects and navigates on click', ()
     'object:file:src/a.rs',
   ]);
 });
+
+test('the right inspector summarizes the selected object and its stable id', () => {
+  const s = sandbox();
+  s.context.fixture = fixture(true);
+  s.run('state.project=fixture;state.selected="REQ-A";renderObjectInspector();');
+  const requirement = s.node('#objectInspector').innerHTML;
+  assert.match(requirement, /REQ-A/);
+  assert.match(requirement, /Priority/i);
+  assert.match(requirement, /Convergence/i);
+  s.run('state.selected="";state.selectedComponent="component:one";renderObjectInspector();');
+  const component = s.node('#objectInspector').innerHTML;
+  assert.match(component, /component:one/);
+  assert.match(component, /Responsibilities/i);
+  s.run('state.selectedComponent="";renderObjectInspector();');
+  assert.match(s.node('#objectInspector').innerHTML, /Select an object/);
+});

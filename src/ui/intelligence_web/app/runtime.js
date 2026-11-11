@@ -6,7 +6,7 @@ function renderWorkspaceOptions() {
 }
 function renderSharedChrome() {
   renderWorkspaceOptions(); renderWorkspaceIdentity();
-  renderLive(); renderStats(); renderAttention(); renderProjectNavigator(); renderObjectNavigator();
+  renderLive(); renderStats(); renderAttention(); renderProjectNavigator(); renderObjectNavigator(); renderObjectInspector();
 }
 function renderWorkspaceIdentity() {
   const project = state.project;
@@ -711,12 +711,8 @@ function executeCommand(command) {
 // link cannot pull the page into a different repository's view.
 function investigationHash() {
   const params = new URLSearchParams(String(location.hash || "").replace(/^#/, ""));
-  return {
-    view: params.get("view") || "",
-    workspace: params.get("workspace") || params.get("ws") || "",
-    object: params.get("o") || "",
-    label: params.get("inv") || "",
-  };
+  return { view: params.get("view") || "", workspace: params.get("workspace") || params.get("ws") || "",
+    object: params.get("o") || "", label: params.get("inv") || "" };
 }
 // The selected object joins the view in the same history entry. Rewriting the
 // current entry keeps a selection from adding a history step of its own.
@@ -732,6 +728,7 @@ function syncInvestigationHash() {
   const spec = `${state.workspaceTab}|${state.current}|${object}|${state.drawerLabel || ""}`;
   if (spec === lastInvestigationSpec) return;
   lastInvestigationSpec = spec;
+  renderObjectInspector();
   // The workspace is part of the link. Before the snapshot names one, writing
   // the hash would advertise an empty workspace that restores nothing.
   if (!state.current) return;
