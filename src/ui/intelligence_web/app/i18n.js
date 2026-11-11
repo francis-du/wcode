@@ -668,6 +668,7 @@ Object.assign(translations["zh-CN"], {
   "Source, tasks and checks": "源码　任务　检查",
   "Review changes and results": "查看变更和结果",
   "Project navigation": "项目导航",
+  "Object navigation": "对象导航",
   "Project pages": "项目页面",
   "Current project context": "当前项目上下文",
   "Current project status": "当前项目状态",

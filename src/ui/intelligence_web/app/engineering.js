@@ -11,6 +11,35 @@ function projectNavigatorItems() {
   for (const file of project.structure?.entries || []) items.push({ kind: "file", id: file.path, label: file.path, detail: localized(`${file.language || "source"} · ${num(file.lines || 0)} lines`, `${file.language || "源码"} · ${num(file.lines || 0)} 行`) });
   return items;
 }
+// The left object navigator keeps the loaded objects reachable without the
+// search palette, and reuses the header navigator's item source so both
+// surfaces describe the same snapshot.
+function objectNavigatorCommand(item) {
+  if (item.kind === "component") return `object:component:${item.id}`;
+  if (item.kind === "requirement") return `object:requirement:${item.id}`;
+  if (item.kind === "change") return `object:change:${item.id}`;
+  if (item.kind === "file") return `object:file:${item.id}`;
+  return "";
+}
+function renderObjectNavigator() {
+  const host = els.objectNavigator;
+  if (!host) return;
+  const items = projectNavigatorItems().filter((item) => item.kind !== "subsystem");
+  if (!items.length) {
+    setHtml("objectNavigator", host, `<p class="object-navigator-empty">${esc(localized("No object is loaded in this snapshot.", "此快照未加载任何对象。"))}</p>`);
+    return;
+  }
+  const shown = items.slice(0, 60);
+  const rows = shown.map((item, index) =>
+    `<button type="button" class="object-navigator-item" data-object-index="${index}" aria-current="${item.id === state.selected || item.id === state.selectedComponent ? "true" : "false"}"><span class="object-navigator-kind">${esc(navigatorKindLabel(item.kind))}</span><span class="object-navigator-copy"><strong>${esc(item.label)}</strong><small>${esc(item.detail || "")}</small></span></button>`
+  ).join("");
+  setHtml("objectNavigator", host,
+    `<div class="object-navigator-head"><strong>${esc(localized("Objects", "对象"))}</strong><span>${items.length > shown.length ? `60 / ${items.length}` : items.length}</span></div><div class="object-navigator-list">${rows}</div>`,
+    () => host.querySelectorAll("[data-object-index]").forEach((button) => button.addEventListener("click", () => {
+      const command = objectNavigatorCommand(shown[Number(button.dataset.objectIndex)]);
+      if (command) executeCommand(command);
+    })));
+}
 function focusSelectedSubsystemCard({ focus = false } = {}) {
   const target = [...(els.architectureBlueprint?.querySelectorAll("[data-subsystem-card]") || [])]
     .find(button => button.dataset.subsystemCard === state.selectedSubsystem);

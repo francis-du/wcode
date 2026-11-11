@@ -164,3 +164,8 @@
   .context-runtime .muted{max-width:100%;}
 }
 @media (pointer:coarse){.observation-disclosure>summary{min-height:44px;}}
+@media (max-width:1100px){
+  .observatory-main{grid-template-columns:minmax(0,1fr);}
+  .object-navigator{grid-column:1;grid-row:auto;}
+  #architectureSection,#overviewSection,.drawer-stack{grid-column:1;}
+}

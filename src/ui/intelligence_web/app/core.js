@@ -121,6 +121,7 @@ const els = {
   drawerBody: q("#drawerBody"),
   drawerToggle: q("#drawerToggle"),
   drawerLabel: q("#drawerLabel"),
+  objectNavigator: q("#objectNavigator"),
   drawerTelemetry: q("#drawerTelemetry"),
   changes: q("#changes"),
   verificationImpact: q("#verificationImpact"),

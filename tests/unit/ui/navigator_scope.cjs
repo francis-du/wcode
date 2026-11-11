@@ -73,3 +73,42 @@ test('the navigator scope is localized without changing its meaning', () => {
   assert.match(text, /仅搜索已加载的快照/);
   assert.doesNotMatch(text, /partial/i, 'an untruncated snapshot must not claim partiality');
 });
+
+function objectNavigatorHost(s) {
+  const host = s.node('#objectNavigator');
+  let html = '', buttons = [];
+  Object.defineProperty(host, 'innerHTML', {
+    get: () => html,
+    set: value => {
+      html = value;
+      buttons = [...value.matchAll(/data-object-index="(\d+)"/g)].map(match => ({
+        dataset: { objectIndex: match[1] },
+        handler: null,
+        addEventListener(kind, handler) { this.handler = handler; },
+      }));
+    },
+  });
+  host.querySelectorAll = () => buttons;
+  return host;
+}
+
+test('the left object navigator lists loaded objects and navigates on click', () => {
+  const s = sandbox();
+  s.context.fixture = fixture(true);
+  const host = objectNavigatorHost(s);
+  s.run('state.project=fixture;renderObjectNavigator();');
+  const html = host.innerHTML;
+  for (const label of ['REQ-A', 'component:one', 'src/changed.rs', 'src/a.rs']) {
+    assert.ok(html.includes(label), `${label} must be reachable from the navigator`);
+  }
+  assert.doesNotMatch(html, /sub:core/, 'a subsystem grouping is not an object');
+  s.context.opened = [];
+  s.run('executeCommand=(command)=>opened.push(command);');
+  for (const button of host.querySelectorAll()) button.handler();
+  assert.deepEqual(s.context.opened, [
+    'object:component:component:one',
+    'object:requirement:REQ-A',
+    'object:change:src/changed.rs',
+    'object:file:src/a.rs',
+  ]);
+});

@@ -5,9 +5,8 @@ function renderWorkspaceOptions() {
   setHtml("workspaceOptions", els.workspace, options);
 }
 function renderSharedChrome() {
-  renderWorkspaceOptions();
-  renderWorkspaceIdentity();
-  renderLive(); renderStats(); renderAttention(); renderProjectNavigator();
+  renderWorkspaceOptions(); renderWorkspaceIdentity();
+  renderLive(); renderStats(); renderAttention(); renderProjectNavigator(); renderObjectNavigator();
 }
 function renderWorkspaceIdentity() {
   const project = state.project;
