@@ -56,3 +56,40 @@ fn perf_multi_query_clones_only_the_best_match_per_symbol() {
     )
     .is_empty());
 }
+
+#[test]
+fn perf_path_evidence_is_file_scoped_and_still_reaches_every_symbol() {
+    let root = tempfile::tempdir().unwrap();
+    let source = (0..64)
+        .map(|number| format!("pub fn unrelated_symbol_{number}() {{}}\n"))
+        .collect::<String>();
+    fs::write(root.path().join("worker.rs"), source).unwrap();
+    fs::write(
+        root.path().join("other.rs"),
+        "pub fn unrelated_symbol() {}\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(root.path(), false, false).unwrap();
+    let index = CodeIndex::new().unwrap();
+    let ensured = index
+        .ensure_indexed(&workspace, "worker.rs", false)
+        .unwrap();
+    let matches = crate::code_index::symbols::matching_symbols_many(
+        &ensured.record,
+        &["worker".to_owned()],
+        None,
+    );
+    assert_eq!(
+        matches.len(),
+        64,
+        "every symbol still receives the file-scoped path evidence"
+    );
+    assert!(matches.iter().all(|(_, score, _)| *score == 5));
+    let other = index.ensure_indexed(&workspace, "other.rs", false).unwrap();
+    assert!(crate::code_index::symbols::matching_symbols_many(
+        &other.record,
+        &["worker".to_owned()],
+        None,
+    )
+    .is_empty());
+}

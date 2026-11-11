@@ -114,6 +114,12 @@ pub(super) fn matching_symbols_many(
 ) -> Vec<(usize, u8, CodeSymbol)> {
     // Rank every keyword before materializing a candidate. An early broad
     // term must not duplicate or outrank a later exact definition.
+    // Path evidence depends only on the file, so score it once per query
+    // instead of once per symbol in the record.
+    let path_scores = queries
+        .iter()
+        .map(|query| path_symbol_score(&record.path, query))
+        .collect::<Vec<_>>();
     record
         .symbols
         .iter()
@@ -125,7 +131,7 @@ pub(super) fn matching_symbols_many(
                 .enumerate()
                 .filter_map(|(index, query)| {
                     symbol_score(symbol, query)
-                        .or_else(|| path_symbol_score(&record.path, query))
+                        .or(path_scores[index])
                         .map(|score| (score.saturating_sub(1), index, score))
                 })
                 .min()
