@@ -425,6 +425,22 @@ async function run(){
     assert.match(s.node('#codeGraphMap').innerHTML,/tree-sitter/);
   });
 
+  await test('a latest graph that no longer matches the newest capture is marked stale',async()=>{
+    const s=sandbox();s.context.g=focusGraph('symbol:alpha',{snapshot_id:'GRAPH-old'});
+    s.run('state.current="A";state.codeGraph=g;state.codeGraphView="focus";state.selectedCodeNode="symbol:alpha";'
+      + 'state.project={history:[{id:"GRAPH-new",captured_at_ms:2},{id:"GRAPH-old",captured_at_ms:1}]};renderCodeGraph();');
+    assert.match(s.node('#codeGraphSummary').innerHTML,/stale/i);
+    assert.match(s.node('#codeGraphMap').innerHTML,/GRAPH-new/,'the stale notice names the snapshot that is current now');
+  });
+
+  await test('a pinned historical snapshot is a comparison, not a stale reading',async()=>{
+    const s=sandbox();s.context.g=focusGraph('symbol:alpha',{snapshot_id:'GRAPH-old'});
+    s.run('state.current="A";state.codeGraph=g;state.codeGraphView="focus";state.selectedCodeNode="symbol:alpha";'
+      + 'state.codeGraphSnapshot="GRAPH-old";'
+      + 'state.project={history:[{id:"GRAPH-new",captured_at_ms:2},{id:"GRAPH-old",captured_at_ms:1}]};renderCodeGraph();');
+    assert.doesNotMatch(s.node('#codeGraphSummary').innerHTML,/stale/i);
+  });
+
   await test('source drilldown is snapshot-bound and renders escaped readonly lines',async()=>{
     const s=sandbox();s.context.g=focusGraph();s.run('state.current="A";state.codeGraph=g;state.codeGraphView="focus";state.codeGraphWorkspace="A";state.selectedCodeNode="symbol:alpha";renderCodeGraphInspector();');
     assert.match(s.node('#codeGraphInspector').innerHTML,/Read source at this snapshot/);
