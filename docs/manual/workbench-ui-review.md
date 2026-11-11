@@ -10,7 +10,7 @@ permalink: /docs/workbench-ui-review/
 
 # Workbench UI review
 
-The workbench keeps the current workspace, source revision and snapshot state visible across all seven pages. Navigation remembers the last supported page; unavailable local storage and invalid preferences fall back safely. The current page heading and browser title follow language and workspace changes. Keyboard users can skip directly to the active page or return to acceptance from the brand link.
+The workbench keeps the current workspace, source revision, snapshot state and the operator's investigation label visible across all seven pages. Navigation remembers the last supported page; unavailable local storage and invalid preferences fall back safely. The current page heading and browser title follow language and workspace changes. Keyboard users can skip directly to the active page or return to acceptance from the brand link.
 
 Observation coverage remains available in a native disclosure. This gives the acceptance decision, task list, source inspection or requirement detail space before supporting coverage on a phone. Existing source precision, stale snapshots, failed evidence and operator permissions keep their original meanings.
 
