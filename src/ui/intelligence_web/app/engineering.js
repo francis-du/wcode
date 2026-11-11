@@ -17,6 +17,10 @@ function projectNavigatorItems() {
 // The right inspector keeps the selected object's identity, state and scope
 // readable without leaving the current view. It is a summary of the same
 // snapshot the views own; it does not duplicate their full detail.
+function changeStatus(path) {
+  if (typeof path !== "string" || !path) return "";
+  return (state.project?.changes || []).find(item => item.path === path)?.status || "";
+}
 function objectInspectorFact(label, value) {
   return `<div class="inspector-fact"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
 }
@@ -56,7 +60,7 @@ function renderObjectInspector() {
   } else if (state.changeInspection?.path) {
     body = `<div class="inspector-kind">${esc(localized("Change", "变更"))}</div><strong class="inspector-title">${esc(state.changeInspection.path)}</strong><div class="inspector-facts">${
       objectInspectorFact(localized("Layer", "层级"), statusLabel(state.changeInspection.layer))
-      + objectInspectorFact(localized("Status", "状态"), statusLabel(state.changeInspection.data?.status || "unknown"))
+      + objectInspectorFact(localized("Status", "状态"), statusLabel(changeStatus(state.changeInspection.path)))
     }</div>`;
   }
   if (!body) {
