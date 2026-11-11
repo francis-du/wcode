@@ -68,6 +68,14 @@
 #snapshotState[data-state="warn"] { color:var(--warn); }
 #snapshotState[data-state="loading"] { color:var(--accent); }
 #workspaceRevision { flex:0 0 auto; font-size:12px; }
+#investigationLabel {
+  max-width:220px;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--soft);
+}
 #workspaceRevision:empty,.workspace-root:empty { display:none; }
 .workspace-hero { display:block; min-height:0; padding:0 0 4px; }
 .workspace-hero::after { display:none; }

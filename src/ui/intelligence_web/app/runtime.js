@@ -28,6 +28,7 @@ function renderWorkspaceIdentity() {
       ? localized(`Running wcode build: ${build}. This is separate from the observed source revision.`, `运行中的 wcode 版本：${build}。它与观测源码版本是两个身份。`)
       : "";
   }
+  renderInvestigationLabel();
   const page = els.workspaceTitle?.textContent || t("Project Status");
   document.title = `${page} · ${name} · wcode`;
 }

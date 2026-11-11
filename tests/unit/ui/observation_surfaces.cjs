@@ -308,3 +308,13 @@ test('switching main views keeps the place the operator left', () => {
   assert.equal(JSON.stringify(s.context.scrolled), '[[0,420],[0,420],[0,80],[0,80]]',
     'a workspace switch drops the old places');
 });
+
+test('the identity bar carries the current investigation label', () => {
+  const s = sandbox();
+  s.context.fixture = fixture();
+  s.run('state.project=fixture;state.drawerLabel="Queue regression";renderWorkspaceIdentity();');
+  assert.equal(s.node('#investigationLabel').textContent, 'Queue regression');
+  assert.match(s.node('#investigationLabel').title, /Queue regression/);
+  s.run('state.drawerLabel="";renderWorkspaceIdentity();');
+  assert.equal(s.node('#investigationLabel').textContent, '—');
+});

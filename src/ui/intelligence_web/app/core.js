@@ -26,6 +26,7 @@ const els = {
   workspaceRevision: q("#workspaceRevision"),
   workspaceBuild: q("#workspaceBuild"),
   snapshotState: q("#snapshotState"),
+  investigationLabel: q("#investigationLabel"),
   language: q("#language"),
   theme: q("#theme"),
   manage: q("#manage"),
@@ -288,6 +289,17 @@ function switchWorkspaceTabView(previous, next, { scroll, fromHistory }) {
     // Deferred so the incoming panel is laid out before the position is applied.
     if (saved > 0) requestAnimationFrame(() => window.scrollTo?.(0, saved));
   }
+}
+// The identity bar carries the operator's own name for the current
+// investigation, so it reads without opening the drawer.
+function renderInvestigationLabel() {
+  const label = els.investigationLabel;
+  if (!label) return;
+  const investigation = String(state.drawerLabel || "").trim().slice(0, 80);
+  label.textContent = investigation || "—";
+  label.title = investigation
+    ? localized(`Current investigation: ${investigation}`, `当前调查：${investigation}`)
+    : localized("No investigation label yet", "尚未命名调查");
 }
 const t = (key) => translateKey(state.language, key);
 const localized = (en, zh) => state.language === "zh-CN" ? zh : en;
