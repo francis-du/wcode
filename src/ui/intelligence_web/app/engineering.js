@@ -62,6 +62,28 @@ function renderObjectInspector() {
       objectInspectorFact(localized("Layer", "层级"), statusLabel(state.changeInspection.layer))
       + objectInspectorFact(localized("Status", "状态"), statusLabel(changeStatus(state.changeInspection.path)))
     }</div>`;
+  } else if (state.selectedCodeNode && state.codeGraph) {
+    // A code graph selection is an investigation object too, so the inspector
+    // names it instead of leaving the previous object on screen.
+    const entry = (state.codeGraph.nodes || []).find(item => item?.node?.id === state.selectedCodeNode);
+    const node = entry?.node;
+    if (node) {
+      const direction = entry?.upstream && entry?.downstream
+        ? localized("upstream + downstream", "上游 + 下游")
+        : entry?.upstream
+          ? localized("upstream / blast radius", "上游 / 影响半径")
+          : localized("downstream / dependency", "下游 / 依赖");
+      const relations = (state.codeGraph.edges || [])
+        .filter(edge => edge.from === node.id || edge.to === node.id).length;
+      body = `<div class="inspector-kind">${esc(localized("Symbol", "符号"))}</div><strong class="inspector-title">${esc(node.label || node.id)}</strong><small class="inspector-id">${esc(node.id)}</small><div class="inspector-facts">${
+        objectInspectorFact(localized("Kind", "类型"), statusLabel(codeGraphDisplayKind(node)))
+        + objectInspectorFact(localized("Path", "路径"), codeGraphPath(node) || "—")
+        + objectInspectorFact(localized("Provider", "提供者"), node.provenance?.provider || "—")
+        + objectInspectorFact(localized("Precision", "精度"), String(node.provenance?.precision || "unknown"))
+        + objectInspectorFact(localized("Direction", "方向"), direction)
+        + objectInspectorFact(localized("Relations", "关系数"), num(relations))
+      }</div>`;
+    }
   }
   if (!body) {
     setHtml("objectInspector", host, `<p class="inspector-hint">${esc(localized("Select an object to inspect its identity, state and scope.", "选择对象以查看其身份、状态与范围。"))}</p>`);

@@ -128,3 +128,22 @@ test('the right inspector summarizes the selected object and its stable id', () 
   s.run('state.selectedComponent="";renderObjectInspector();');
   assert.match(s.node('#objectInspector').innerHTML, /Select an object/);
 });
+
+test('the right inspector names the selected code symbol and its provenance', () => {
+  const s = sandbox();
+  s.context.fixture = fixture(true);
+  s.run('state.project=fixture;'
+    + 'state.codeGraph={root_ids:["symbol:alpha"],'
+    + 'nodes:[{node:{id:"symbol:alpha",label:"alpha",kind:"function",'
+    + 'attributes:{path:"src/a.rs",source_kind:"function"},'
+    + 'provenance:{provider:"tree-sitter",precision:"syntax",revision:"code:1"}},distance:1}],'
+    + 'edges:[{from:"symbol:alpha",to:"symbol:beta",kind:"calls"}]};'
+    + 'state.selectedCodeNode="symbol:alpha";renderObjectInspector();');
+  const html = s.node('#objectInspector').innerHTML;
+  assert.match(html, /Symbol/i);
+  assert.match(html, /alpha/);
+  assert.match(html, /src\/a\.rs/);
+  assert.match(html, /tree-sitter/);
+  assert.match(html, /syntax/);
+  assert.doesNotMatch(html, /Select an object/);
+});
