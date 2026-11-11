@@ -643,6 +643,94 @@ fn repeated_history_listings_do_not_reparse_every_snapshot() {
 }
 
 #[test]
+fn a_replaced_snapshot_file_cannot_serve_a_stale_history_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let provenance = |revision: &str| crate::graph::GraphProvenance {
+        provider: "tree-sitter:fixture".into(),
+        precision: GraphPrecision::Syntax,
+        revision: revision.into(),
+    };
+    let snapshot = |label: &str, id: &str, revision: &str| SoftwareGraphSnapshot {
+        workspace: "demo".into(),
+        path: ".".into(),
+        provider: "tree-sitter".into(),
+        precision: GraphPrecision::Syntax,
+        files_considered: 1,
+        files_indexed: 1,
+        files_failed: 0,
+        scan_truncated: false,
+        truncated: false,
+        node_count: 1,
+        edge_count: 0,
+        source_node_count: None,
+        source_edge_count: None,
+        failures: vec![],
+        graph: {
+            let mut graph = SoftwareGraph::default();
+            graph
+                .add_node(GraphNode {
+                    id: format!("function:{id}"),
+                    kind: NodeKind::Function,
+                    label: label.into(),
+                    attributes: BTreeMap::new(),
+                    provenance: provenance(revision),
+                })
+                .unwrap();
+            graph
+        },
+    };
+    let first = persist(&workspace, &snapshot("before", "before", "syntax:1")).unwrap();
+    let listing = history(&workspace, 10).unwrap();
+    assert_eq!(listing.len(), 1);
+    assert_eq!(listing[0].id, first.id);
+    assert_eq!(listing[0].nodes, 1);
+
+    // Replace the file at the same path with a snapshot that carries the same
+    // id but different content and size.
+    let directory = graph_directory(&workspace).unwrap();
+    let path = graph_paths(&directory)
+        .unwrap()
+        .into_iter()
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(&format!("-{}.json", first.id)))
+        })
+        .expect("the persisted snapshot path exists");
+    let mut replacement = snapshot("after", "after", "syntax:2");
+    replacement.node_count = 2;
+    replacement
+        .graph
+        .add_node(GraphNode {
+            id: "function:extra".into(),
+            kind: NodeKind::Function,
+            label: "extra".into(),
+            attributes: BTreeMap::new(),
+            provenance: provenance("syntax:2"),
+        })
+        .unwrap();
+    fs::write(
+        &path,
+        serde_json::to_vec(&StoredGraphSnapshot {
+            id: first.id.clone(),
+            captured_at_ms: first.captured_at_ms,
+            snapshot: replacement,
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    let listing = history(&workspace, 10).unwrap();
+    assert_eq!(listing.len(), 1);
+    assert_eq!(listing[0].id, first.id);
+    assert_eq!(
+        listing[0].nodes, 2,
+        "a replaced file must be read again, not served from the cached entry"
+    );
+}
+
+#[test]
 fn duplicate_graph_persist_reads_only_the_matching_snapshot() {
     let dir = tempfile::tempdir().unwrap();
     let workspace = Workspace::new(dir.path(), false, false).unwrap();
