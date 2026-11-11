@@ -149,9 +149,22 @@ function renderAdaptiveVerification() {
   const focused = adaptive.focused_test
     ? `<div class="info-card"><b>${esc(localized("Focused test", "聚焦测试"))}</b><div><code>${esc(adaptive.focused_test.command)}</code></div><div class="panel-meta">${esc(adaptive.focused_test.island || "workspace")} · phase ${esc(adaptive.focused_test.phase)} · ${esc(adaptive.focused_test.provider || "—")} / ${esc(adaptive.focused_test.precision || "—")}</div><div class="panel-meta">${esc(adaptive.focused_test.reason || "—")}</div></div>`
     : "";
-  const frontierRows = (adaptive.cost_sentinel?.frontier || []).map((entry) =>
-    `<div class="frontier-row"><div><b>#${esc(entry.order)}</b> <code>${esc(entry.command || entry.check_id || "—")}</code><div class="component-id">${esc(entry.island || "workspace")}</div></div><div class="dep-state">${Number(entry.failure_rate_percent || 0).toFixed(1)}% ${esc(localized("overall failures", "总体失败"))}<div class="panel-meta">${esc(entry.marginal_failures)}/${esc(entry.marginal_samples)} ${esc(localized("marginal failures", "边际失败"))} · ${Number(entry.marginal_failure_rate_percent || 0).toFixed(1)}% · +${esc(entry.estimated_incremental_savings_ms)} ms ${esc(localized("estimated savings", "预计节省"))}</div></div></div>`
-  ).join("");
+  const frontierRows = (adaptive.cost_sentinel?.frontier || []).map((entry) => {
+    // A rate over zero samples is not a measurement. Keep the numerator and
+    // denominator visible and drop the derived percentage in that case.
+    const samples = Number(entry.samples);
+    const failures = Number(entry.failures);
+    const marginalSamples = Number(entry.marginal_samples);
+    const marginalFailures = Number(entry.marginal_failures);
+    const sampleText = (total, count) => Number.isFinite(total) ? `${count}/${total}` : "—";
+    const overall = samples > 0
+      ? `${Number(entry.failure_rate_percent || 0).toFixed(1)}% ${esc(localized("overall failures", "总体失败"))}`
+      : esc(localized("overall failures not measured", "总体失败未测量"));
+    const marginal = marginalSamples > 0
+      ? `${Number(entry.marginal_failure_rate_percent || 0).toFixed(1)}%`
+      : "—";
+    return `<div class="frontier-row"><div><b>#${esc(entry.order)}</b> <code>${esc(entry.command || entry.check_id || "—")}</code><div class="component-id">${esc(entry.island || "workspace")}</div></div><div class="dep-state">${overall} <span class="panel-meta">${esc(sampleText(samples, failures))}</span><div class="panel-meta">${esc(sampleText(marginalSamples, marginalFailures))} ${esc(localized("marginal failures", "边际失败"))} · ${marginal} · +${esc(entry.estimated_incremental_savings_ms)} ms ${esc(localized("estimated savings", "预计节省"))}</div></div></div>`;
+  }).join("");
   const sentinel = adaptive.cost_sentinel
     ? `<div class="info-card"><b>${esc(localized("Fail-fast frontier", "Fail-fast 前沿"))}</b><div class="panel-meta">${esc(adaptive.cost_sentinel.frontier?.length || 1)} ${esc(localized("bounded stages", "个有界阶段"))} · ${esc(adaptive.cost_sentinel.estimated_total_savings_ms || adaptive.cost_sentinel.estimated_savings_ms)} ms ${esc(localized("total estimated savings", "总预计节省"))}</div>${frontierRows || `<div><code>${esc(adaptive.cost_sentinel.command || adaptive.cost_sentinel.check_id || "—")}</code></div>`}<div class="panel-meta">${esc(adaptive.cost_sentinel.model || "—")} · ${esc(adaptive.cost_sentinel.provider || "—")} / ${esc(adaptive.cost_sentinel.precision || "—")}</div></div>`
     : "";

@@ -19,6 +19,21 @@ test('English descriptive copy never leaks internal translation IDs',()=>{const 
 test('Chinese descriptions and zero-record state remain truthful',()=>{const s=render('zh-CN');assert.ok(s.node('#verifiedLearning').innerHTML.includes('冷启动'));assert.ok(s.node('#adaptiveVerification').innerHTML.includes('不会执行'));assert.ok(s.node('#codeStats').innerHTML.includes('有界快照'));});
 const output=path.join(root,'target/wcode-layout-fixture.html');
 const views=['en','zh-CN'].map(language=>{const s=render(language);return `<article lang="${language}"><section class="lower"><div class="panel"><h2>Code statistics</h2><div class="section" data-layout-stats>${s.node('#codeStats').innerHTML}</div></div><div class="panel"><h2>Architecture revisions</h2><p>Current bounded snapshot</p></div></section><section class="proof-workspace"><div data-layout-proof>${s.node('#proofSummary').innerHTML}</div><section class="proof-signals-panel"><h2>Engineering signals</h2><div class="proof-signal-grid"><section class="proof-signal-card" data-layout-adaptive>${s.node('#adaptiveVerification').innerHTML}</section><section class="proof-signal-card">${s.node('#verifiedLearning').innerHTML}</section></div></section></section></article>`;}).join('');
+
+test('a frontier stage without samples keeps its rate unmeasured',()=>{
+  const s=sandbox(false,true,{fakeTimers:true});
+  const base=fixture.adaptive_verification;
+  s.context.fixture={...fixture,adaptive_verification:{...base,
+    cost_sentinel:{...base.cost_sentinel,frontier:[{order:1,command:'cargo check',island:'.',
+      samples:0,failures:0,failure_rate_percent:0,marginal_samples:0,marginal_failures:0,
+      marginal_failure_rate_percent:0,estimated_incremental_savings_ms:0}]}}};
+  s.run('state.project=fixture;state.language="en";renderAdaptiveVerification();');
+  const html=s.node('#adaptiveVerification').innerHTML;
+  assert.match(html,/overall failures not measured/);
+  assert.match(html,/0\/0/);
+  assert.doesNotMatch(html,/0\.0% overall failures/);
+});
+
 fs.mkdirSync(path.dirname(output),{recursive:true});
 fs.writeFileSync(output,`<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>${styles}</style></head><body><main style="padding:20px">${views}</main></body></html>`);
 console.log(JSON.stringify({suite:'observatory-layout',results:tests,fixture:output},null,2));
