@@ -313,8 +313,33 @@ fn read_execution(path: &Path) -> Result<Option<ReconciliationExecution>> {
 fn prune_directory(directory: &Path) -> Result<()> {
     let paths = execution_paths(directory)?;
     let excess = paths.len().saturating_sub(MAX_EXECUTION_SNAPSHOTS);
-    for path in paths.into_iter().take(excess) {
+    if excess == 0 {
+        return Ok(());
+    }
+    // Evicting every snapshot of a plan makes the next update recreate it with
+    // every task Pending, silently discarding recorded progress. Keep the
+    // newest snapshot of each plan: the distinct plan count is bounded far
+    // below MAX_EXECUTION_SNAPSHOTS, so the store still reaches its bound.
+    let mut seen = BTreeSet::new();
+    let mut newest_per_plan = BTreeSet::new();
+    for path in paths.iter().rev() {
+        let name = path.file_name().and_then(|name| name.to_str());
+        if let Some(plan_id) = name.and_then(execution_snapshot_plan_id) {
+            if seen.insert(plan_id) {
+                newest_per_plan.insert(path);
+            }
+        }
+    }
+    let mut removed = 0;
+    for path in paths.iter() {
+        if removed >= excess {
+            break;
+        }
+        if newest_per_plan.contains(path) {
+            continue;
+        }
         let _ = fs::remove_file(path);
+        removed += 1;
     }
     Ok(())
 }

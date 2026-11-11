@@ -214,3 +214,84 @@ fn concurrent_scoped_claim_transactions_preserve_both_writers_and_monotonic_revi
         assert_eq!(run.claimed_by.as_deref(), Some(executor));
     }
 }
+
+#[test]
+fn prune_keeps_the_newest_snapshot_of_every_plan() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let plan = prune_plan("RP-prune");
+    let lone = prune_plan("RP-prune-lone");
+    let directory = execution_directory(&workspace).unwrap();
+    std::fs::create_dir_all(&directory).unwrap();
+    // The lone plan's only snapshot is the oldest in the store, so an unscoped
+    // prune deletes it and the next update recreates it with every task Pending.
+    write_snapshot(&directory, &lone, 1);
+    for timestamp in 2..=MAX_EXECUTION_SNAPSHOTS as u64 + 1 {
+        write_snapshot(&directory, &plan, timestamp);
+    }
+    prune_directory(&directory).unwrap();
+    let paths = execution_paths(&directory).unwrap();
+    assert!(
+        paths.len() <= MAX_EXECUTION_SNAPSHOTS,
+        "the store bound must hold"
+    );
+    assert!(
+        load(&workspace, &lone.id).unwrap().is_some(),
+        "the newest snapshot of a plan must survive pruning"
+    );
+}
+
+fn prune_plan(id: &str) -> ReconciliationPlan {
+    ReconciliationPlan {
+        id: id.into(),
+        workspace: "demo".into(),
+        risk_level: RiskLevel::Low,
+        design_changes: vec![],
+        drift_ids: vec![],
+        impacted_components: vec![],
+        impacted_symbols: vec![],
+        impacted_tests: vec![],
+        impacted_acceptance: vec![],
+        implementation_tasks: vec![ReconciliationTask {
+            id: format!("RT-{id}"),
+            kind: ReconciliationTaskKind::Implementation,
+            subject: "component:a".into(),
+            description: "Implement change.".into(),
+            write_scopes: vec![],
+            depends_on: vec![],
+        }],
+        change_intents: vec![],
+        verification_plan: VerificationPlan {
+            id: format!("VP-{id}"),
+            workspace: "demo".into(),
+            subject: "change:fixture".into(),
+            revision: None,
+            risk_level: RiskLevel::Low,
+            policy: "risk-adaptive/v1/low".into(),
+            deterministic_level: "quick".into(),
+            required_checks: None,
+            deterministic_checks: vec![],
+            reviewer_roles: vec![],
+            require_property: false,
+            require_mutation: false,
+            require_fuzz: false,
+            require_human_approval: false,
+            stage_targets: vec![],
+            automation_gaps: vec![],
+            job_ids: vec![],
+        },
+    }
+}
+
+fn write_snapshot(directory: &std::path::Path, plan: &ReconciliationPlan, timestamp: u64) {
+    let execution = ReconciliationExecution::from_plan(plan).unwrap();
+    let bytes = serde_json::to_vec(&execution).unwrap();
+    let digest = digest_bytes(&bytes);
+    let path = directory.join(format!(
+        "{:020}-{}-{}.json",
+        timestamp,
+        plan.id,
+        &digest[..16]
+    ));
+    std::fs::write(path, bytes).unwrap();
+}
