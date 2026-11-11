@@ -33,13 +33,17 @@ function renderObjectInspector() {
   let body = "";
   if (requirement) {
     const drift = (requirement.drift || []).slice(0, 3).join(", ");
+    const changedPaths = requirementChanges(requirement).map(item => item.path).filter(Boolean);
+    const changedFiles = changedPaths.length
+      ? changedPaths.slice(0, 4).join(", ") + (changedPaths.length > 4 ? ` +${changedPaths.length - 4}` : "")
+      : localized("none", "无");
     body = `<div class="inspector-kind">${esc(localized("Requirement", "需求"))}</div><strong class="inspector-title">${esc(requirement.title || requirement.id)}</strong><small class="inspector-id">${esc(requirement.id)}</small><div class="inspector-facts">${
       objectInspectorFact(localized("Priority", "优先级"), statusLabel(requirement.priority))
       + objectInspectorFact(localized("Convergence", "收敛状态"), statusLabel(requirement.convergence))
       + objectInspectorFact(localized("Components", "组件"), num((requirement.components || []).length))
       + objectInspectorFact(localized("Acceptance", "验收标准"), num((requirement.acceptance || []).length))
       + objectInspectorFact(localized("Drift paths", "偏离路径"), drift || "—")
-      + objectInspectorFact(localized("Changed", "已变更"), requirement.changed ? localized("yes", "是") : localized("no", "否"))
+      + objectInspectorFact(localized("Changed files", "变更文件"), changedFiles)
     }</div>`;
   } else if (component) {
     const alignment = (architectureData().dependencies || [])

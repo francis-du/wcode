@@ -115,12 +115,16 @@ test('the left object navigator lists loaded objects and navigates on click', ()
 
 test('the right inspector summarizes the selected object and its stable id', () => {
   const s = sandbox();
-  s.context.fixture = fixture(true);
+  s.context.fixture = { ...fixture(true),
+    changes: [{ path: 'src/changed.rs', status: 'modified', affected_components: [],
+      affected_requirements: ['REQ-A'] }] };
   s.run('state.project=fixture;state.selected="REQ-A";renderObjectInspector();');
   const requirement = s.node('#objectInspector').innerHTML;
   assert.match(requirement, /REQ-A/);
   assert.match(requirement, /Priority/i);
   assert.match(requirement, /Convergence/i);
+  assert.match(requirement, /Changed files/i);
+  assert.match(requirement, /src\/changed\.rs/);
   s.run('state.selected="";state.selectedComponent="component:one";renderObjectInspector();');
   const component = s.node('#objectInspector').innerHTML;
   assert.match(component, /component:one/);
