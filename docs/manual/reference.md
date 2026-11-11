@@ -42,6 +42,7 @@ wcode mcp-stdio
 wcode telemetry --help
 wcode intelligence --help
 wcode verification --help
+wcode import-ci-receipt --help
 wcode help-all
 ```
 
