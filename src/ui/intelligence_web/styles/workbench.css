@@ -135,6 +135,10 @@
 
 .object-navigator {
   min-width:0;
+  max-height:calc(100dvh - 120px);
+  overflow:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
   padding:12px;
   border:1px solid var(--line);
   border-radius:16px;
