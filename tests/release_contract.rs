@@ -101,6 +101,18 @@ fn release_metadata_versions_match_the_cargo_package() {
         "Cargo.lock wcode package must match Cargo.toml"
     );
 
+    // The workspace member is published alongside the binary, so a release that
+    // bumped only the root package would ship a stale core-types crate.
+    let core_types = fs::read_to_string(root.join("crates/core-types/Cargo.toml")).unwrap();
+    let core_types_version = core_types
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("version = \"")?.strip_suffix('"'))
+        .expect("core-types package version");
+    assert_eq!(
+        core_types_version, version,
+        "crates/core-types must match the wcode package version"
+    );
+
     for (path, pointer) in [
         ("marketplace.json", "/plugins/0/version"),
         ("plugin/marketplace.json", "/plugins/0/version"),
