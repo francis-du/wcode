@@ -982,12 +982,12 @@ function startObservatory() {
     renderInvestigationDrawer();
   });
   if (typeof wireCodeGraph === "function") wireCodeGraph();
-  activateWorkspaceTab(initialViewFromHash());
-  // A link may name an object directly; the palette command already knows how to
-  // open each kind, so the hash reuses that single navigation path.
+  // A link may carry an investigation label or name an object directly. The
+  // identity bar renders during the first tab activation, so the label is read
+  // before it; the object reuses the palette's single navigation path.
   const hash = investigationHash();
-  // A link may carry an investigation label; the drawer keeps it while the user renames it.
   state.drawerLabel = hash.label;
+  activateWorkspaceTab(initialViewFromHash());
   if (hash.object) executeCommand(hash.object);
   // Neither the initial render nor later project refreshes own the activity loop.
   void refreshTunnels();
