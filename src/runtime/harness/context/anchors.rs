@@ -70,7 +70,10 @@ fn query_anchors(query: &str) -> Vec<Anchor> {
 pub(super) fn diagnostic_locations(query: &str) -> Vec<Value> {
     query_anchors(query)
         .into_iter()
-        .filter(|anchor| anchor.line.is_some())
+        // `Anchor::line` uses zero for a recognized location whose line could
+        // not be read. That is not a line number, so it must not leave this
+        // function as one.
+        .filter(|anchor| anchor.line.is_some_and(|line| line > 0))
         .map(|anchor| {
             json!({
                 "path": anchor.path,

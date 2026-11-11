@@ -293,3 +293,20 @@ fn anchor_symlinks_remain_blocked() {
         .unwrap()
         .contains("no_leak_sentinel"));
 }
+
+#[test]
+fn an_unrecognized_line_number_is_not_reported_as_a_location() {
+    let locations = crate::harness::diagnostic_locations("error at src/runtime/worker.rs:0");
+    assert!(
+        locations.is_empty(),
+        "a line number of zero is not a location: {locations:?}"
+    );
+    let coordinates = crate::harness::diagnostic_locations("error at src/runtime/worker.rs(0,4)");
+    assert!(
+        coordinates.is_empty(),
+        "a zero coordinate is not a location: {coordinates:?}"
+    );
+    let valid = crate::harness::diagnostic_locations("error at src/runtime/worker.rs:120:9");
+    assert_eq!(valid.len(), 1);
+    assert_eq!(valid[0]["line"], 120);
+}
