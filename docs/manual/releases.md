@@ -11,14 +11,15 @@ permalink: /docs/releases/
 
 ## Recent
 
+- [v0.9.12 — Investigation surface and honest measurements](v0.9.12/)
 - [v0.9.11 — Absent measurements stay unknown](v0.9.11/)
 - [v0.9.10 — Unobserved state stays unknown](v0.9.10/)
-- [v0.9.9 — Revision-bound verification decisions](v0.9.9/)
 
 Release notes are indexed here instead of being expanded in the global documentation sidebar. The three newest releases stay prominent; every older release remains permanently linkable in its minor-series group below, and no release is listed twice.
 
 ## 0.9.x
 
+- [v0.9.9](v0.9.9/) — revision-bound verification decisions.
 - [v0.9.8](v0.9.8/) — design consistency becomes observable.
 - [v0.9.7](v0.9.7/) — bounded tool responses and precise change navigation.
 - [v0.9.6](v0.9.6/) — allocation-free repo map and change classification.

@@ -10,15 +10,11 @@ permalink: /docs/
 
 # Repository tools, task tracking and checks
 
+- [v0.9.12 — Investigation surface and honest measurements](releases/v0.9.12/)
+
 - [v0.9.11 — Absent measurements stay unknown](releases/v0.9.11/)
 
 - [v0.9.10 — Unobserved state stays unknown](releases/v0.9.10/)
-
-- [v0.9.9 — Revision-bound verification decisions](releases/v0.9.9/)
-
-- [v0.9.8 — Design consistency becomes observable](releases/v0.9.8/)
-
-- [v0.9.7 — Bounded tool responses and precise change navigation](releases/v0.9.7/)
 
 - [All releases](releases/)
 
