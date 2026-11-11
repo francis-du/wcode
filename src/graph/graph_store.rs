@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_GRAPH_SNAPSHOTS: usize = 64;
@@ -21,7 +21,9 @@ const MAX_GRAPH_SNAPSHOT_BYTES: u64 = 16 * 1024 * 1024;
 /// handful of recent workspaces resident instead of growing with the machine.
 const SNAPSHOT_CACHE_ENTRIES: usize = 4;
 
-type CachedSnapshot = (SystemTime, u64, Option<StoredGraphSnapshot>);
+/// The parsed snapshot is shared, not cloned: a cache hit must not deep-copy the
+/// whole graph before a query can walk it.
+type CachedSnapshot = (SystemTime, u64, Option<Arc<StoredGraphSnapshot>>);
 type SnapshotCache = HashMap<PathBuf, CachedSnapshot>;
 
 fn snapshot_cache() -> &'static Mutex<SnapshotCache> {
@@ -201,7 +203,7 @@ pub struct GraphDiffResult {
 pub(crate) fn persist(
     workspace: &Workspace,
     snapshot: &SoftwareGraphSnapshot,
-) -> Result<StoredGraphSnapshot> {
+) -> Result<Arc<StoredGraphSnapshot>> {
     snapshot.graph.validate()?;
     let snapshot_bytes = serde_json::to_vec(snapshot).context("cannot encode graph snapshot")?;
     if snapshot_bytes.len() as u64 > MAX_GRAPH_SNAPSHOT_BYTES {
@@ -250,7 +252,7 @@ pub(crate) fn persist(
             .with_context(|| format!("cannot sync graph snapshot {}", path.display()))?;
         prune_directory(&directory)?;
     }
-    Ok(stored)
+    Ok(Arc::new(stored))
 }
 
 pub(crate) fn change_signal(workspace: &Workspace) -> Result<Option<(String, String)>> {
@@ -386,9 +388,9 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphQueryInput) -> Result<Gr
             && input.kind.is_none()
             && label.is_none();
     Ok(GraphQueryResult {
-        snapshot_id: stored.id,
+        snapshot_id: stored.id.clone(),
         captured_at_ms: stored.captured_at_ms,
-        provider: stored.snapshot.provider,
+        provider: stored.snapshot.provider.clone(),
         precision: stored.snapshot.precision,
         nodes,
         edges,
@@ -562,7 +564,7 @@ fn graph_edge_order(left: &GraphEdge, right: &GraphEdge) -> std::cmp::Ordering {
 fn select_diff_snapshots(
     workspace: &Workspace,
     input: &GraphDiffInput,
-) -> Result<(StoredGraphSnapshot, StoredGraphSnapshot)> {
+) -> Result<(Arc<StoredGraphSnapshot>, Arc<StoredGraphSnapshot>)> {
     let directory = graph_directory(workspace)?;
     if !directory.exists() {
         bail!("no stored software graph snapshot is available");
@@ -610,7 +612,11 @@ fn select_diff_snapshots(
     }
 }
 
-fn load_snapshot_by_id(paths: &[PathBuf], id: &str, field: &str) -> Result<StoredGraphSnapshot> {
+fn load_snapshot_by_id(
+    paths: &[PathBuf],
+    id: &str,
+    field: &str,
+) -> Result<Arc<StoredGraphSnapshot>> {
     load_snapshot_by_id_with_index(paths, id, field).map(|(_, snapshot)| snapshot)
 }
 
@@ -618,7 +624,7 @@ fn load_snapshot_by_id_with_index(
     paths: &[PathBuf],
     id: &str,
     field: &str,
-) -> Result<(usize, StoredGraphSnapshot)> {
+) -> Result<(usize, Arc<StoredGraphSnapshot>)> {
     let suffix = format!("-{id}.json");
     let Some((index, path)) = paths.iter().enumerate().find(|(_, path)| {
         path.file_name()
@@ -636,12 +642,12 @@ fn load_snapshot_by_id_with_index(
     Ok((index, snapshot))
 }
 
-fn latest_valid_snapshot(paths: &[PathBuf]) -> Result<StoredGraphSnapshot> {
+fn latest_valid_snapshot(paths: &[PathBuf]) -> Result<Arc<StoredGraphSnapshot>> {
     previous_valid_snapshot(paths)?
         .ok_or_else(|| anyhow::anyhow!("no stored software graph snapshot is available"))
 }
 
-fn previous_valid_snapshot(paths: &[PathBuf]) -> Result<Option<StoredGraphSnapshot>> {
+fn previous_valid_snapshot(paths: &[PathBuf]) -> Result<Option<Arc<StoredGraphSnapshot>>> {
     for path in paths.iter().rev() {
         if let Some(snapshot) = read_snapshot(path)? {
             return Ok(Some(snapshot));
@@ -665,7 +671,7 @@ pub(crate) fn capabilities() -> serde_json::Value {
 pub(crate) fn load_selected(
     workspace: &Workspace,
     id: Option<&str>,
-) -> Result<Option<StoredGraphSnapshot>> {
+) -> Result<Option<Arc<StoredGraphSnapshot>>> {
     let directory = graph_directory(workspace)?;
     if !directory.exists() {
         return Ok(None);
@@ -714,7 +720,7 @@ fn graph_snapshot_id_from_name(name: &str) -> Option<&str> {
     (digest.len() == 24 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(revision)
 }
 
-fn read_snapshot(path: &Path) -> Result<Option<StoredGraphSnapshot>> {
+fn read_snapshot(path: &Path) -> Result<Option<Arc<StoredGraphSnapshot>>> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(_) => return Ok(None),
@@ -739,7 +745,7 @@ fn read_snapshot(path: &Path) -> Result<Option<StoredGraphSnapshot>> {
     }) {
         return Ok(cached);
     }
-    let stored = read_snapshot_from_disk(path)?;
+    let stored = read_snapshot_from_disk(path)?.map(Arc::new);
     if let Ok(mut cache) = snapshot_cache().lock() {
         if cache.len() >= SNAPSHOT_CACHE_ENTRIES {
             cache.clear();

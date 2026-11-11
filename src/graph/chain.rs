@@ -232,9 +232,9 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
     }
 
     Ok(GraphChainResult {
-        snapshot_id: stored.id,
+        snapshot_id: stored.id.clone(),
         captured_at_ms: stored.captured_at_ms,
-        provider: stored.snapshot.provider,
+        provider: stored.snapshot.provider.clone(),
         precision: stored.snapshot.precision,
         query,
         mode: match input.mode {

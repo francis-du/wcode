@@ -105,7 +105,7 @@ fn graph_query_node_filter_misses_do_not_return_unrelated_edges() {
     };
     let stored = persist(&workspace, &snapshot).unwrap();
     let base = GraphQueryInput {
-        snapshot_id: Some(stored.id),
+        snapshot_id: Some(stored.id.clone()),
         node_id: None,
         kind: None,
         label_contains: None,
@@ -574,6 +574,10 @@ fn repeated_snapshot_loads_are_served_from_the_cache() {
         READ_SNAPSHOT_CALLS.with(|count| count.get()),
         reads_after_first,
         "an unchanged snapshot must not be read again"
+    );
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &second),
+        "a cached snapshot must be shared, not deep-cloned for every query"
     );
 }
 

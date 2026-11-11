@@ -191,9 +191,9 @@ pub(crate) fn search(workspace: &Workspace, input: &GraphSearchInput) -> Result<
     }
 
     Ok(GraphSearchResult {
-        snapshot_id: stored.id,
+        snapshot_id: stored.id.clone(),
         captured_at_ms: stored.captured_at_ms,
-        provider: stored.snapshot.provider,
+        provider: stored.snapshot.provider.clone(),
         precision: stored.snapshot.precision,
         query: query.to_owned(),
         truncated: direct_count > candidates.len(),
@@ -319,9 +319,9 @@ pub(crate) fn overview(
         .collect::<Vec<_>>();
 
     Ok(GraphOverviewResult {
-        snapshot_id: stored.id,
+        snapshot_id: stored.id.clone(),
         captured_at_ms: stored.captured_at_ms,
-        provider: stored.snapshot.provider,
+        provider: stored.snapshot.provider.clone(),
         precision: stored.snapshot.precision,
         files_considered: stored.snapshot.files_considered,
         files_indexed: stored.snapshot.files_indexed,
