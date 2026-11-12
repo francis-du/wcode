@@ -10,11 +10,11 @@ permalink: /docs/
 
 # Repository tools, task tracking and checks
 
+- [v0.9.13 — Plan association and steering recovery](releases/v0.9.13/)
+
 - [v0.9.12 — Investigation surface and honest measurements](releases/v0.9.12/)
 
 - [v0.9.11 — Absent measurements stay unknown](releases/v0.9.11/)
-
-- [v0.9.10 — Unobserved state stays unknown](releases/v0.9.10/)
 
 - [All releases](releases/)
 

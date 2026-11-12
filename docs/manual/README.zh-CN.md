@@ -10,11 +10,11 @@ permalink: /zh/docs/
 
 # 查看代码、管理任务、运行检查
 
+- [v0.9.13 — Plan 关联与 Steering 恢复](releases/v0.9.13/)
+
 - [v0.9.12 — 调查界面与诚实测量](releases/v0.9.12/)
 
 - [v0.9.11 — 未观测测量保持未知](releases/v0.9.11/)
-
-- [v0.9.10 — 未观测状态保持未知](releases/v0.9.10/)
 
 - [全部发布](releases/)
 

@@ -3354,7 +3354,7 @@ dependencies = [
 
 [[package]]
 name = "wcode"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "anyhow",
  "axum",
@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "wcode-core-types"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "serde",
  "serde_json",
