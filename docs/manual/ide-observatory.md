@@ -136,7 +136,7 @@ The exact-task Jobs detail now shows deterministic runner metadata retained with
 
 ### Design consistency and investigation continuity (fourth iteration)
 
-The architecture workbench carries a ninth surface, **Design consistency**, beside the system map, components, dependencies and code graph. It combines existing design identities with their observed state; it does not define a new state model and does not replace the requirements or architecture views.
+The architecture workbench carries a **Design consistency** matrix beside the system map, components, dependencies and code graph. It combines existing design identities with their observed state; it does not define a new state model and does not replace the requirements or architecture views.
 
 | Surface | Implemented change | Boundary |
 | --- | --- | --- |
