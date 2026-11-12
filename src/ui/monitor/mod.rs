@@ -52,6 +52,10 @@ use monitor_detail::*;
 mod monitor_intelligence;
 use monitor_intelligence::*;
 
+#[path = "intelligence_labels.rs"]
+mod monitor_intelligence_labels;
+use monitor_intelligence_labels::*;
+
 #[path = "agents.rs"]
 mod monitor_agents;
 use monitor_agents::*;
