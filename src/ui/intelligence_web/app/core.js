@@ -256,6 +256,11 @@ const state = {
   codeGraphSearchTimer: null,
   codeGraphSearchResults: [],
   codeReader: null,
+  // The file tree renders a bounded first page so a large snapshot cannot flood
+  // the DOM; the operator expands it explicitly. A new query collapses it again
+  // so a search never hides matches behind a stale expansion.
+  fileTreeExpanded: false,
+  fileTreeQuery: "",
   codeGraphLayouts: new Map(),
   codeGraphViewports: new Map(),
   codeGraphPaintKey: "",

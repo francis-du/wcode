@@ -364,6 +364,7 @@ function clearWorkspaceView({ preserveDom = false } = {}) {
   state.accessLoaded = false; state.accessEpoch++; state.semanticRefreshPending = false;
   els.search.value = ""; els.componentSearch.value = "";
   if (els.fileSearch) els.fileSearch.value = "";
+  state.fileTreeExpanded = false;
   if (els.codeGraphSearch) els.codeGraphSearch.value = "";
   if (els.fileSearchStatus) els.fileSearchStatus.textContent = "";
   state.activityController?.abort(); state.pollController?.abort();

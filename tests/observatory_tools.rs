@@ -42,6 +42,11 @@ fn design_source_navigation_preserves_observed_paths_and_revision() {
 }
 
 #[test]
+fn file_tree_keeps_its_first_page_bounded_and_expands_on_request() {
+    run_observatory_contract("tests/unit/ui/file_tree.cjs", 3);
+}
+
+#[test]
 fn convergence_cards_navigate_to_the_object_they_name() {
     run_observatory_contract("tests/unit/ui/convergence_navigation.cjs", 3);
 }

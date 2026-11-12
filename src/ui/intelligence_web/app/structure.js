@@ -1,3 +1,8 @@
+// A snapshot may retain up to the server's structure bound; rendering every
+// entry at once floods the DOM on a large repository. The first page stays
+// bounded and the operator expands it explicitly.
+const FILE_TREE_PAGE_SIZE = 200;
+
 function formatBytes(value) {
   const bytes = Number(value || 0);
   if (bytes < 1024) return `${num(bytes)} B`;
@@ -135,12 +140,21 @@ function renderProjectStructure() {
   const structure = state.project?.structure || {};
   const entries = structure.entries || [];
   const query = String(els.fileSearch?.value || "").trim().toLowerCase();
+  if (state.fileTreeQuery !== query) {
+    state.fileTreeQuery = query;
+    state.fileTreeExpanded = false;
+  }
   const visibleEntries = query
     ? entries.filter(file => String(file.path || "").toLowerCase().includes(query))
     : entries;
+  const totalVisible = visibleEntries.length;
+  const shownEntries = state.fileTreeExpanded
+    ? visibleEntries
+    : visibleEntries.slice(0, FILE_TREE_PAGE_SIZE);
+  const remaining = totalVisible - shownEntries.length;
   if (els.fileSearchStatus) {
     els.fileSearchStatus.textContent = query
-      ? localized(`${num(visibleEntries.length)} matching files`, `${num(visibleEntries.length)} 个匹配文件`)
+      ? localized(`${num(totalVisible)} matching files`, `${num(totalVisible)} 个匹配文件`)
       : "";
   }
   const lineLimit = Number(structure.line_limit || 1000);
@@ -194,16 +208,32 @@ function renderProjectStructure() {
       ),
   ].join("");
   setHtml("structureSummary", els.structureSummary, summary);
+  const treeHtml = shownEntries.length
+    ? renderTreeContents(buildFileTree(shownEntries), 0, Boolean(query))
+    : `<div class="empty">${
+      esc(t(query ? "No matching files." : "No source files in this snapshot."))
+    }</div>`;
+  const moreHtml = remaining > 0
+    ? `<div class="tree-more"><span class="panel-meta">${
+      esc(localized(`Showing ${num(shownEntries.length)} of ${num(totalVisible)} files`, `显示 ${num(shownEntries.length)} / ${num(totalVisible)} 个文件`))
+    }</span><button type="button" class="quiet-action" data-file-tree-show-all>${
+      esc(localized(`Show ${num(remaining)} more files`, `显示其余 ${num(remaining)} 个文件`))
+    }</button></div>`
+    : "";
   setSourceActionHtml(
     "fileTree",
     els.fileTree,
-    visibleEntries.length
-      ? renderTreeContents(buildFileTree(visibleEntries), 0, Boolean(query))
-      : `<div class="empty">${
-        esc(t(query ? "No matching files." : "No source files in this snapshot."))
-      }</div>`,
+    treeHtml + moreHtml,
     { tab: "files" },
-    () => bindCodeReaderActions(els.fileTree),
+    () => {
+      bindCodeReaderActions(els.fileTree);
+      const showAll = els.fileTree.querySelector("[data-file-tree-show-all]");
+      if (showAll) showAll.addEventListener("click", () => {
+        state.fileTreeExpanded = true;
+        invalidate("fileTree");
+        renderProjectStructure();
+      });
+    },
   );
   setSourceActionHtml("largeFiles", els.largeFiles, renderLargestFiles(structure), { tab: "files" }, () => bindCodeReaderActions(els.largeFiles));
 }

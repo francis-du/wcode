@@ -11,3 +11,4 @@
 .structure-search{display:grid;gap:6px;padding:12px 0 4px;}.structure-search input{width:100%;background:var(--surface);border-color:var(--line);border-radius:11px;}.structure-search small:empty{display:none;}.structure-search small{color:var(--muted);font-size:12px;}
 .tree-directory summary>span:not(.tree-marker){min-width:0;overflow-wrap:anywhere;}
 .tree-file.changed .tree-file-meta,.large-file.changed>strong{color:var(--warn);}
+.tree-more{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 8px 8px 20px;border-top:1px solid color-mix(in srgb,var(--line) 82%,transparent);}.tree-more .panel-meta{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;}.tree-more .quiet-action{flex:0 0 auto;padding:6px 10px;font-size:12px;}
