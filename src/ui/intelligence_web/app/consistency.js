@@ -265,7 +265,6 @@ function renderConsistencyMatrix() {
       });
     };
     els.consistencySection.querySelectorAll("[data-consistency-row]").forEach(row => {
-      row.querySelectorAll("a,button").forEach(() => {});
       activateRow(row, row.dataset.consistencyRow, row.dataset.consistencyLabel || row.dataset.consistencyRow);
       row.addEventListener("click", () => executeCommand(row.dataset.consistencyRow));
     });
