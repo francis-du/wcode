@@ -648,6 +648,18 @@ impl TaskMonitor {
                 stats.project_attention = value.get("attention").cloned();
                 stats.project_acceptance = value.get("acceptance").cloned();
                 stats.project_revision = value.get("repository_revision").cloned();
+                if let Some(convergence) = value.get("convergence") {
+                    stats.convergence_observed = true;
+                    stats.convergence_stable =
+                        convergence["stable_requirements"].as_u64().unwrap_or(0);
+                    stats.convergence_changing =
+                        convergence["changing_requirements"].as_u64().unwrap_or(0);
+                    stats.convergence_needs = convergence["needs_convergence_requirements"]
+                        .as_u64()
+                        .unwrap_or(0);
+                    stats.convergence_incomplete =
+                        convergence["incomplete_requirements"].as_u64().unwrap_or(0);
+                }
                 stats.project_observed_at = Some(Instant::now());
             }
             "risk_status" => {

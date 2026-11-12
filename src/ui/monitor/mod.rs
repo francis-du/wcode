@@ -258,6 +258,11 @@ struct IntelligenceStats {
     // Each group below is only measurable once its own event was observed.
     convention_observed: bool,
     design_observed: bool,
+    convergence_observed: bool,
+    convergence_stable: u64,
+    convergence_changing: u64,
+    convergence_needs: u64,
+    convergence_incomplete: u64,
     scope_observed: bool,
     policy_errors: u64,
     policy_warnings: u64,

@@ -634,6 +634,25 @@ pub(super) fn render_intelligence_overlay(
             if design == "valid" { SUCCESS } else { WARNING },
         ),
         intelligence_line(
+            language.tr("CONVERGENCE"),
+            convergence_label(
+                stats.convergence_stable,
+                stats.convergence_changing,
+                stats.convergence_needs,
+                stats.convergence_incomplete,
+                stats.convergence_observed,
+                language,
+            ),
+            if !stats.convergence_observed
+                || stats.convergence_needs > 0
+                || stats.convergence_incomplete > 0
+            {
+                WARNING
+            } else {
+                SUCCESS
+            },
+        ),
+        intelligence_line(
             language.tr("SCOPES"),
             format!(
                 "{} mapped / {} source · {} unmapped",
@@ -833,6 +852,28 @@ fn intelligence_refresh_line(
 
 // Absent counts are unknown, not measured zeros, and unknown state never takes
 // success styling.
+pub(super) fn convergence_label(
+    stable: u64,
+    changing: u64,
+    needs: u64,
+    incomplete: u64,
+    observed: bool,
+    language: UiLanguage,
+) -> String {
+    if !observed {
+        return language.tr("convergence unknown").to_owned();
+    }
+    format!(
+        "{} {} · {} {} · {} {}",
+        stable,
+        language.tr("stable"),
+        changing,
+        language.tr("changing"),
+        needs.saturating_add(incomplete),
+        language.tr("needs convergence")
+    )
+}
+
 pub(super) fn drift_findings_label(count: Option<u64>, language: UiLanguage) -> String {
     match count {
         Some(count) => format!("{count} {}", language.tr("drift finding(s)")),

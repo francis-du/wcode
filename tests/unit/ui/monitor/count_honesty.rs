@@ -27,6 +27,23 @@ fn drift_and_evidence_counts_stay_unknown_until_observed() {
 }
 
 #[test]
+fn convergence_counts_stay_unknown_until_observed() {
+    let unknown = super::monitor_intelligence::convergence_label(0, 0, 0, 0, false, UiLanguage::En);
+    assert!(unknown.contains("unknown"), "{unknown}");
+    assert!(!unknown.contains('0'), "{unknown}");
+    let zh = super::monitor_intelligence::convergence_label(0, 0, 0, 0, false, UiLanguage::ZhCn);
+    assert!(zh.contains("未知"), "{zh}");
+    assert_eq!(
+        super::monitor_intelligence::convergence_label(3, 1, 2, 1, true, UiLanguage::En),
+        "3 stable · 1 changing · 3 needs convergence"
+    );
+    assert_eq!(
+        super::monitor_intelligence::convergence_label(3, 1, 2, 1, true, UiLanguage::ZhCn),
+        "3 稳定 · 1 变更中 · 3 需要收敛"
+    );
+}
+
+#[test]
 fn reconcile_line_keeps_an_unobserved_pending_count_unknown() {
     let label = super::monitor_intelligence::pending_tasks_label(None, UiLanguage::En);
     assert!(label.contains("unknown"), "{label}");
