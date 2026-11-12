@@ -292,7 +292,9 @@ impl SoftwareIntelligenceRuntime {
         // implementation detail and must not change Hot Source/body selection
         // relative to a cold discovery of the same unchanged revision.
         let prefer_test_symbols = context_query_prefers_tests(&tokens);
-        symbols.sort_by_key(|symbol| {
+        // The rank key lowercases four fields per symbol, so compute it once per
+        // candidate instead of once per comparison.
+        symbols.sort_by_cached_key(|symbol| {
             context_symbol_rank(symbol, &literals, &symbol_queries, prefer_test_symbols)
         });
         // Reserve one definition for each requested literal before duplicate
