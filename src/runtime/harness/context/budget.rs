@@ -678,18 +678,19 @@ fn compact_primary_hot_source(value: &mut Value) -> bool {
 
 #[cfg(test)]
 pub(super) fn trim_agent_context(value: &mut Value, budget: usize) -> Result<()> {
-    let current_tokens = estimated_json_tokens(value)?;
-    trim_agent_context_from_tokens(value, budget, current_tokens)
+    let current_bytes = serialized_json_bytes(value)?;
+    trim_agent_context_from_tokens(value, budget, current_bytes)
 }
 
 pub(super) fn trim_agent_context_from_tokens(
     value: &mut Value,
     budget: usize,
-    mut current_tokens: usize,
+    mut current_bytes: usize,
 ) -> Result<()> {
     let mut truncated = value["truncated"].as_bool().unwrap_or(false);
     let (explicit_target_min, explicit_body_min) =
         super::context_dedup::explicit_retention_minima(value, budget);
+    let mut current_tokens = current_bytes.div_ceil(4);
     const MAX_COMPACTION_STEPS: usize = 128;
     let mut compaction_steps = 0usize;
     while current_tokens > budget {
@@ -700,7 +701,7 @@ pub(super) fn trim_agent_context_from_tokens(
             );
         }
         let previous_tokens = current_tokens;
-        let previous_bytes = serialized_json_bytes(value)?;
+        let previous_bytes = current_bytes;
         let changed = drop_key(value, "decision_plane")
             || compact_capability_explanation(value)
             || compact_capability_manifest(value)
@@ -768,7 +769,7 @@ pub(super) fn trim_agent_context_from_tokens(
             break;
         }
         truncated = true;
-        let current_bytes = serialized_json_bytes(value)?;
+        current_bytes = serialized_json_bytes(value)?;
         current_tokens = current_bytes.div_ceil(4);
         if current_bytes >= previous_bytes {
             anyhow::bail!(

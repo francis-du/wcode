@@ -920,7 +920,8 @@ fn finalize_agent_context(
         value["context_bytes_avoided"] = json!(avoided);
         value["context_reduction_percent"] = json!(reduction_percent);
 
-        let current_tokens = serialized_json_bytes(value)?.div_ceil(4);
+        let current_bytes = serialized_json_bytes(value)?;
+        let current_tokens = current_bytes.div_ceil(4);
         // The query is needed for explicit-target/readiness routing during
         // trimming, but is removed from the delivered pack below. Do not evict
         // source to pay for this temporary echo. Round the allowance DOWN so
@@ -934,7 +935,7 @@ fn finalize_agent_context(
             .unwrap_or(0);
         let packing_budget = budget.saturating_add(query_allowance);
         if current_tokens > packing_budget {
-            trim_agent_context_from_tokens(value, packing_budget, current_tokens)?;
+            trim_agent_context_from_tokens(value, packing_budget, current_bytes)?;
             refresh_readiness_capabilities(value);
             continue;
         }
