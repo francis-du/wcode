@@ -35,11 +35,11 @@ fn convergence_counts_stay_unknown_until_observed() {
     assert!(zh.contains("未知"), "{zh}");
     assert_eq!(
         super::monitor_intelligence::convergence_label(3, 1, 2, 1, true, UiLanguage::En),
-        "3 stable · 1 changing · 3 needs convergence"
+        "3 stable · 1 changing · 3 need work"
     );
     assert_eq!(
         super::monitor_intelligence::convergence_label(3, 1, 2, 1, true, UiLanguage::ZhCn),
-        "3 稳定 · 1 变更中 · 3 需要收敛"
+        "3 稳定 · 1 变更中 · 3 需处理"
     );
 }
 

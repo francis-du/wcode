@@ -74,6 +74,21 @@ fn seed_engineering_state(monitor: &TaskMonitor, workspace: &str) {
         "reconciliation_execution_status",
         &serde_json::json!({"converged": false, "pending": 2}),
     );
+    monitor.record_intelligence_result(
+        workspace,
+        "project_observatory",
+        &serde_json::json!({
+            "attention": {"total": 3, "partial": false, "truncated": false},
+            "acceptance": {},
+            "repository_revision": {"code": "rev-a", "design": null},
+            "convergence": {
+                "stable_requirements": 7,
+                "changing_requirements": 2,
+                "needs_convergence_requirements": 2,
+                "incomplete_requirements": 1
+            }
+        }),
+    );
 }
 
 #[test]

@@ -463,6 +463,25 @@ pub(super) fn render_intelligence_overlay(
                     if design == "valid" { SUCCESS } else { WARNING },
                 ),
                 intelligence_line(
+                    language.tr("CONVERGENCE"),
+                    convergence_label(
+                        stats.convergence_stable,
+                        stats.convergence_changing,
+                        stats.convergence_needs,
+                        stats.convergence_incomplete,
+                        stats.convergence_observed,
+                        language,
+                    ),
+                    if !stats.convergence_observed
+                        || stats.convergence_needs > 0
+                        || stats.convergence_incomplete > 0
+                    {
+                        WARNING
+                    } else {
+                        SUCCESS
+                    },
+                ),
+                intelligence_line(
                     language.tr("POLICY"),
                     format!(
                         "{} errors · {} warnings",
@@ -523,7 +542,8 @@ pub(super) fn render_intelligence_overlay(
                     ),
                     SECONDARY,
                 ),
-            ]),
+            ])
+            .wrap(Wrap { trim: false }),
             architecture_inner,
         );
         frame.render_widget(
@@ -602,7 +622,8 @@ pub(super) fn render_intelligence_overlay(
                         SECONDARY
                     },
                 ),
-            ]),
+            ])
+            .wrap(Wrap { trim: false }),
             proof_inner,
         );
         frame.render_widget(
@@ -870,7 +891,7 @@ pub(super) fn convergence_label(
         changing,
         language.tr("changing"),
         needs.saturating_add(incomplete),
-        language.tr("needs convergence")
+        language.tr("need work")
     )
 }
 

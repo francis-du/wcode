@@ -260,7 +260,7 @@ impl UiLanguage {
             (Self::ZhCn, "convergence unknown") => "收敛状态未知",
             (Self::ZhCn, "stable") => "稳定",
             (Self::ZhCn, "changing") => "变更中",
-            (Self::ZhCn, "needs convergence") => "需要收敛",
+            (Self::ZhCn, "need work") => "需处理",
             (Self::ZhCn, "SCOPES") => "范围",
             (Self::ZhCn, "TRACE") => "追踪",
             (Self::ZhCn, "POLICY") => "策略",

@@ -74,6 +74,7 @@ fn production_dashboard_render_review_exports_all_operator_surfaces() {
             ("help", 100, 26),
             ("commands", 100, 26),
             ("project-details", 120, 34),
+            ("observations", 120, 34),
             ("full-access", 100, 26),
             ("workspace-input", 100, 26),
             ("command-authorization", 100, 26),
@@ -97,6 +98,11 @@ fn production_dashboard_render_review_exports_all_operator_surfaces() {
                 "project-details" => {
                     ui.intelligence_open = true;
                     language.tr("PROJECT DETAILS")
+                }
+                "observations" => {
+                    ui.intelligence_open = true;
+                    ui.console_tab = ConsoleTab::Summary;
+                    language.tr("CONVERGENCE")
                 }
                 "full-access" => {
                     ui.full_access_confirm = true;
@@ -154,6 +160,14 @@ fn production_dashboard_render_review_exports_all_operator_surfaces() {
                     );
                 }
             }
+            if name == "observations" {
+                for label in ["DESIGN", "CONVERGENCE", "SCOPES", "TRACE", "RISK"] {
+                    assert!(
+                        text.contains(language.tr(label)),
+                        "missing {label}/{language:?}: {text}"
+                    );
+                }
+            }
             let locale = if language == UiLanguage::En {
                 "en"
             } else {
@@ -173,5 +187,5 @@ fn production_dashboard_render_review_exports_all_operator_surfaces() {
         serde_json::to_vec_pretty(&records).unwrap(),
     )
     .unwrap();
-    assert_eq!(records.len(), 22);
+    assert_eq!(records.len(), 24);
 }
