@@ -322,7 +322,7 @@ evidence_status
 
 | Tool | 用途 |
 | --- | --- |
-| `apply_edits` / `write_file` / `replace_text` | 使用已观测 SHA 原子修改已有文件。 |
+| `apply_edits` / `apply_file_edits` / `write_file` / `replace_text` | 使用已观测 SHA 原子修改已有文件；`apply_file_edits` 可并发提交最多 64 个文件。 |
 | `create_file` / `create_files` / `create_directory` | 不覆盖目标地创建内容。 |
 | `move_path` / `move_paths` | 不覆盖目标地移动/重命名 Workspace 路径。 |
 | `delete_path` | 删除一个文件或空目录。不需要人工审批；递归、Root、符号链接与硬链接删除保持阻断。 |

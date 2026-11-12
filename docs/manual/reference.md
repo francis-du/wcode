@@ -355,7 +355,7 @@ evidence_status
 
 | Tool | Use it for |
 | --- | --- |
-| `apply_edits` / `write_file` / `replace_text` | Atomic existing-file edits guarded by the observed SHA. |
+| `apply_edits` / `apply_file_edits` / `write_file` / `replace_text` | Atomic existing-file edits guarded by the observed SHA; `apply_file_edits` commits up to 64 files concurrently. |
 | `create_file` / `create_files` / `create_directory` | Create new workspace content without overwrite. |
 | `move_path` / `move_paths` | Move/rename bounded workspace paths without destination overwrite. |
 | `delete_path` | Delete one file or empty directory. No human approval is required; recursive/root/symlink/hard-link deletion stays blocked. |
