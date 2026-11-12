@@ -482,6 +482,8 @@ executors:
 
 从 quick 加强到 full，或从 full 加强到 adversarial 后，旧的较弱绑定不能遮住新版本匹配且满足要求的 Plan。已经满足要求的绑定也不能被较新的弱 Plan 替换。选中 Plan 不代表验证通过：缺失的确定性检查、Stage、Reviewer 或 HumanApproval Evidence 仍会阻止最终完成。Reviewer Job 仅 claimed 不算完成审查，改变 Reviewer 标签也不构成独立执行证明。
 
+任意 Reconciliation Plan 处于绑定状态时（无论是否已批准），scope 或 objective Directive 都会让 Execution 报告 `replan_required`，且绝不修改已绑定的快照。Worklist 前进后，真正的 refresh 只能用同一 Workspace 中当前 Revision 的 Plan 替换绑定；没有可替换项时 Directive 保持 pending，每个替换项也保留自己的批准门槛。重新打开未完成的工作会保留未完成的 Directive、verification floor 与 Execution 身份。
+
 源码修改和 release build 成功不能证明当前 MCP 进程已经加载这些修改。运行态加载需在获准维护时单独核实，不能为了让状态看起来更新而重启承载当前操作的 MCP 服务。
 
 ### 持久命令与 MCP Tasks

@@ -438,6 +438,8 @@ Configured executors run without a shell, remain workspace-scoped, hide configur
 
 After steering from quick to full, or from full to adversarial verification, a weaker bound plan must not hide the newer matching plan. A bound plan already satisfying the floor remains selected even if a weaker candidate is newer. Selecting a plan is not passing it: missing deterministic, stage, reviewer or HumanApproval evidence still blocks settlement. A claimed reviewer job is not a submitted review, and changing reviewer labels does not establish independent execution.
 
+A scope or objective directive against any bound Reconciliation plan, approved or not, reports `replan_required` and never mutates the bound snapshot. After the Worklist advances, a real refresh replaces the binding only with a current-revision plan from the same workspace; without a replacement the directive stays pending, and every replacement keeps its own approval gate. Reopening unfinished work preserves the pending directive, the verification floor and the Execution identity.
+
 Source edits and a successful release build do not establish which code the active MCP process has loaded. Runtime loading must be checked separately during authorized maintenance; do not restart the transport carrying the current operation just to make its status appear current.
 
 ### Durable commands and MCP Tasks

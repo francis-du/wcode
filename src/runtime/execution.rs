@@ -87,6 +87,15 @@ pub(crate) struct ExecutionDirective {
     pub requested_at_ms: u64,
 }
 
+impl ExecutionDirective {
+    fn normalize_replan_requirement(&mut self) {
+        self.requires_replan |= matches!(
+            self.kind,
+            ExecutionDirectiveKind::RefineObjective | ExecutionDirectiveKind::ChangeScope
+        ) && self.reconciliation_plan_id.is_some();
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct ExecutionDirectiveInput {
     pub expected_revision: u64,
@@ -188,7 +197,10 @@ pub(crate) fn refresh(
     let current_revision_plan_id = harness
         .reconciliation_history(workspace, 20)?
         .into_iter()
-        .find(|plan| plan.verification_plan.revision.as_ref() == Some(&repository_revision))
+        .find(|plan| {
+            plan.workspace == workspace_id
+                && plan.verification_plan.revision.as_ref() == Some(&repository_revision)
+        })
         .map(|plan| plan.id);
     let steering_replan_ready = current.as_ref().is_some_and(|execution| {
         execution
@@ -325,7 +337,8 @@ fn sync(
     let new_generation = restart
         || current.is_none()
         || current.as_ref().is_some_and(|execution| {
-            execution.checkpoint.open_items == 0
+            execution.pending_directive.is_none()
+                && execution.checkpoint.open_items == 0
                 && !crate::worklist::is_complete(worklist)
                 && worklist.revision > execution.checkpoint.worklist_revision
         });
@@ -528,13 +541,7 @@ pub(crate) fn steer(workspace: &Workspace, input: ExecutionDirectiveInput) -> Re
     }
     let mut directive = build_directive(&execution, input)?;
     directive.reconciliation_plan_id = execution.checkpoint.reconciliation_plan_id.clone();
-    directive.requires_replan = matches!(
-        directive.kind,
-        ExecutionDirectiveKind::RefineObjective | ExecutionDirectiveKind::ChangeScope
-    ) && match directive.reconciliation_plan_id.as_deref() {
-        Some(plan_id) => crate::reconciliation_approval::load(workspace, plan_id)?.is_some(),
-        None => false,
-    };
+    directive.normalize_replan_requirement();
     if directive.kind == ExecutionDirectiveKind::StrengthenVerification {
         execution.verification_floor = directive.verification_strength.clone();
     }
@@ -737,13 +744,16 @@ fn load(workspace: &Workspace) -> Result<Option<Execution>> {
     if bytes.len() as u64 > MAX_EXECUTION_BYTES {
         bail!("execution snapshot exceeds its read bound");
     }
-    let execution: Execution =
+    let mut execution: Execution =
         serde_json::from_slice(&bytes).context("execution snapshot is corrupt")?;
     validate(&execution)?;
     if path.file_name().and_then(|name| name.to_str())
         != Some(format!("{:020}.json", execution.revision).as_str())
     {
         bail!("execution snapshot revision does not match its identity");
+    }
+    if let Some(directive) = execution.pending_directive.as_mut() {
+        directive.normalize_replan_requirement();
     }
     Ok(Some(execution))
 }
@@ -958,3 +968,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../tests/unit/runtime/execution_scope.rs"]
 mod scope_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/runtime/execution_replan.rs"]
+mod replan_tests;
