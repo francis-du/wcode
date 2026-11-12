@@ -23,16 +23,13 @@ pub(super) fn select_guidance(
 
     if let Some(index) = baseline {
         let document = &documents[index];
-        let (excerpt, score, truncated) =
+        let (excerpt, _score, truncated) =
             focused_excerpt(document, &signals).unwrap_or_else(|| baseline_excerpt(document));
         selected.push((
             usize::MAX,
             index,
             guidance_value(document, excerpt, truncated),
         ));
-        if score > 0 {
-            selected[0].0 = score;
-        }
     }
 
     let mut relevant = documents
