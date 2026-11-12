@@ -113,8 +113,8 @@ test('the home status carries the work queue counts', () => {
     checkpoint: { open_items: 4, blocked_items: 2, done_items: 9, runnable: ['lane-a'] } } };
   s.run('state.project=fixture;renderObservationCoverage();');
   const html = s.node('#observationCoverage').innerHTML;
-  assert.equal((html.match(/class="observation-surface"/g) || []).length, 8,
-    'the drilldown count stays at the contracted eight');
+  assert.equal((html.match(/class="observation-surface"/g) || []).length, 9,
+    'the drilldown count stays at the contracted nine');
   assert.match(html, /4 open · 2 blocked/, 'unfinished and blocked counts are visible at home');
   assert.match(html, /data-summary-action="activitySection"/, 'the entry opens the task progress');
   s.run('state.language="zh-CN";renderObservationCoverage();');
@@ -124,6 +124,22 @@ test('the home status carries the work queue counts', () => {
   s.run('state.language="en";state.project=fixture;renderObservationCoverage();');
   assert.doesNotMatch(s.node('#observationCoverage').innerHTML, /open · /,
     'an unread checkpoint adds no counts');
+});
+
+test('the home status carries the requirement convergence breakdown', () => {
+  const s = sandbox();
+  s.context.fixture = { ...fixture(), convergence: {
+    stable_requirements: 7, changing_requirements: 2,
+    needs_convergence_requirements: 2, incomplete_requirements: 1 } };
+  s.run('state.project=fixture;renderObservationCoverage();');
+  const html = s.node('#observationCoverage').innerHTML;
+  assert.match(html, /7 stable · 2 changing · 3 need work/,
+    'the convergence counts are visible at home');
+  assert.match(html, /data-summary-action="requirementsSection"/,
+    'the entry opens the requirements view');
+  s.run('state.language="zh-CN";renderObservationCoverage();');
+  assert.match(s.node('#observationCoverage').innerHTML, /7 项稳定 · 2 项变更中 · 3 项需处理/,
+    'the counts keep their Simplified Chinese form');
 });
 
 test('the acceptance policy binding shows its scope and expiry', () => {

@@ -109,6 +109,21 @@ function renderObservationCoverage() {
     [localized("Evidence", "证据"), "proofSection", proof.current_evidence ? localized(`${num(proof.current_failed || 0)} failures · ${num(proof.current_inconclusive || 0)} inconclusive`, `${num(proof.current_failed || 0)} 项失败 · ${num(proof.current_inconclusive || 0)} 项未定`) : localized("No current-version evidence", "无当前版本证据"), proof.current_failed ? localized("Failing", "存在失败") : proof.current_evidence ? localized("Recorded", "已记录") : localized("Unverified", "未验证")],
     [localized("Architecture", "架构"), "architectureSection", localized(`${num(p.architecture?.components?.length || 0)} components · ${statusLabel(graphPrecision().primary)}`, `${num(p.architecture?.components?.length || 0)} 个组件 · ${statusLabel(graphPrecision().primary)}`), p.code?.graph_truncated ? localized("Partial", "不完整") : statusLabel(graphPrecision().primary)],
     (() => {
+      const convergence = p.convergence || {};
+      const stable = Number(convergence.stable_requirements || 0);
+      const changing = Number(convergence.changing_requirements || 0);
+      const needs = Number(convergence.needs_convergence_requirements || 0)
+        + Number(convergence.incomplete_requirements || 0);
+      const observed = stable + changing + needs;
+      return [localized("Requirements", "需求"), "requirementsSection",
+        observed
+          ? localized(`${stable} stable · ${changing} changing · ${needs} need work`, `${stable} 项稳定 · ${changing} 项变更中 · ${needs} 项需处理`)
+          : localized("No requirement convergence observed", "未观测到需求收敛"),
+        !observed ? localized("Unknown", "未知")
+          : needs ? localized("Needs attention", "需处理")
+            : localized("Observed", "已观测")];
+    })(),
+    (() => {
       const checkpoint = p.execution?.checkpoint;
       const runtime = activity?.available === true && !state.activityError
         ? localized(`${num(activity.active || 0)} active · ${num(activity.queued || 0)} queued`, `${num(activity.active || 0)} 项执行 · ${num(activity.queued || 0)} 项排队`)
