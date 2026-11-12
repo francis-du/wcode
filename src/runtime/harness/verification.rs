@@ -6,7 +6,7 @@ const COLD_RUST_GATE_TIMEOUT_FLOOR_SECONDS: u64 = 300;
 fn verification_check_timeout_seconds(check: &CheckSpec, requested: u64) -> u64 {
     let requested = requested.clamp(1, 1800);
     let canonical_full_rust_gate = check.level == "full"
-        && ((check.id == "rust-test" && check.phase == 1)
+        && ((matches!(check.id.as_str(), "rust-test" | "rust-nextest") && check.phase == 1)
             || (check.id == "rust-release-build" && check.phase == 3));
     if canonical_full_rust_gate && requested == DEFAULT_VERIFICATION_TIMEOUT_SECONDS {
         COLD_RUST_GATE_TIMEOUT_FLOOR_SECONDS

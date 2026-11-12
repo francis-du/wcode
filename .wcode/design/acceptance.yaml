@@ -49,7 +49,7 @@
     cargo test commands may run concurrently as shared readers only up to the resource governor child-process capacity.
     Exclusive commands wait for active test readers, new test readers wait behind an acquired exclusive command, and
     all lanes retain bounded queue waits, hardened arguments, child CPU/thread limits and unchanged verification
-    semantics. The default 120-second verification timeout remains unchanged for ordinary checks; the canonical full Rust test and release-build gates
+    semantics. The default 120-second verification timeout remains unchanged for ordinary checks; the canonical full Rust test (libtest or nextest) and release-build gates
     receive a deterministic 300-second cold-run floor at that default so a growing complete suite is not converted into false failure by the generic bound, while explicit non-default timeouts keep their requested bound and every check remains capped at 1800 seconds.
     Foreground CPU/process capacity remains hardware- and memory-bounded but no longer hard-caps all profiles
     at eight CPU burst lanes. 1 GiB+ profiles can scale toward sixteen CPU burst lanes and eight heavy children on

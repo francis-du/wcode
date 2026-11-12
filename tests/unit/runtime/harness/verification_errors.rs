@@ -24,6 +24,10 @@ fn default_verification_timeout_gives_full_rust_gates_a_bounded_cold_floor() {
     rust_test.program = "cargo".into();
     assert_eq!(verification_check_timeout_seconds(&rust_test, 120), 300);
 
+    let mut nextest = rust_test.clone();
+    nextest.id = "rust-nextest".into();
+    assert_eq!(verification_check_timeout_seconds(&nextest, 120), 300);
+
     let mut build = rust_test.clone();
     build.id = "rust-release-build".into();
     build.phase = 3;
