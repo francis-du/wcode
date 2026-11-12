@@ -102,6 +102,13 @@ pub(super) fn deduplicate_source_backed_repo_map(value: &mut Value) -> bool {
 }
 
 pub(super) fn compact_duplicate_symbol_metadata(value: &mut Value, compact_metadata: bool) -> bool {
+    if value["targets"].as_array().is_none_or(Vec::is_empty)
+        && value["repo_map"]["items"]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+    {
+        return false;
+    }
     let current = current_source_metadata(value);
     let mut changed = false;
 

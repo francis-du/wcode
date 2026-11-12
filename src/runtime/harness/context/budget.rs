@@ -433,6 +433,9 @@ pub(super) fn compact_duplicate_symbol_metadata(value: &mut Value) -> bool {
 }
 
 pub(super) fn compact_source_backed_targets(value: &mut Value) -> bool {
+    if value["targets"].as_array().is_none_or(Vec::is_empty) {
+        return false;
+    }
     let defaults = value["provenance_defaults"]["targets"].clone();
     let backed = value["hot_source"]
         .as_array()
