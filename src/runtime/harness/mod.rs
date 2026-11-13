@@ -489,6 +489,9 @@ mod harness_convention_cache;
 #[path = "repo_map.rs"]
 mod harness_repo_map;
 
+#[path = "repo_map_support.rs"]
+mod harness_repo_map_support;
+
 #[path = "review.rs"]
 mod harness_review;
 use harness_review::*;
