@@ -110,12 +110,15 @@ use monitor_metrics::*;
 
 #[path = "state.rs"]
 mod monitor_state;
+#[path = "state_support.rs"]
+mod monitor_state_support;
+use monitor_state_support::*;
 #[path = "state_activity.rs"]
 mod monitor_state_activity;
 #[path = "state_jev.rs"]
 mod monitor_state_jev;
 #[cfg(test)]
-use monitor_state::trim_history;
+use monitor_state_support::trim_history;
 
 #[path = "theme.rs"]
 mod monitor_theme;
