@@ -1,0 +1,801 @@
+use super::*;
+
+pub(in crate::mcp) async fn call(
+    state: &AppState,
+    name: &str,
+    args: &Value,
+) -> Result<AnyResult<Value>, String> {
+    let outcome: AnyResult<Value> = match name {
+        "workspace_info" => {
+            let mut info = state.workspaces.capabilities();
+            info["harness"] = state.harness.capabilities();
+            info["admission"] = json!(state.harness.admission_snapshot());
+            info["runtime"] =
+                json!({"version": env!("CARGO_PKG_VERSION"), "process_id": std::process::id()});
+            info["mcp"] = json!({
+                "server_version": env!("CARGO_PKG_VERSION"),
+                "transports": ["stdio", "streamable-http", "legacy-sse"],
+                "modern_protocol": MODERN_PROTOCOL_VERSION,
+                "legacy_protocols": LEGACY_PROTOCOL_VERSIONS,
+                "capabilities": ["tools", "prompts", "resources", "tasks"],
+                "media_content": {
+                    "tool": "read_media",
+                    "standard_tool_content_blocks": ["image", "audio"],
+                    "per_call_opt_in": "include_content=true",
+                    "video": "metadata-only"
+                },
+                "local_command": "wcode mcp-stdio",
+                "workspace_default": "MCP Host working directory",
+                "agent_plugin_export": "wcode agent-plugin",
+                "remote_auth": "oauth-pkce-resource-bound",
+            });
+            info["mcp_tasks"] = task_capabilities();
+            info["product_scopes"] = json!(scopes::registry());
+            info["scope_guidance"] = json!({
+                "semantic_scopes": "semantic_query and software_context accept optional scopes; canonical wcode Product Scopes narrow source/semantic context while freeform business scopes remain supported",
+                "tool_metadata": "tools/list includes dev.wcode/productScopes in each tool _meta",
+            });
+            info["scheduling"] = json!({
+                "max_parallel": state.harness.max_parallel(),
+                "semantics": "global-cap-not-target",
+                "fanout_tool": "parallel_tools",
+                "bulk_tools": ["read_files", "search_many"],
+                "composite_tools": ["review_changes", "verify_project"],
+                "guidance": "Use bulk tools for one traversal and parallel_tools for already-known operations. Same-file apply_edits on one SHA are coalesced; a reusable resource dependency graph fans out independent work and orders overlapping read/write, parent/child, move, delete, and directory-creation dependencies."
+            });
+            Ok(info)
+        }
+        "convention_status" => convention_status_tool(state, args).await,
+        "scope_status" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .product_scope_status(&workspace)
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+            })
+            .await
+        }
+        "design_status" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .design_status(workspace_id, &workspace)
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+            })
+            .await
+        }
+        "design_init" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let name = string_arg(args, "name").unwrap_or(&workspace_id).to_owned();
+            let description = string_arg(args, "description").unwrap_or("").to_owned();
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .design_init(workspace_id, &workspace, &name, &description)
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+            })
+            .await
+        }
+        "software_graph" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let path = string_arg(args, "path").unwrap_or(".").to_owned();
+            let max_files = bounded_usize_arg_range(args, "max_files", 500, 1, 5_000)?;
+            let max_symbols = bounded_usize_arg_range(args, "max_symbols", 1_000, 1, 5_000)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .software_graph(workspace_id, &workspace, &path, max_files, max_symbols)
+                    .and_then(|snapshot| serde_json::to_value(snapshot).map_err(Into::into))
+            })
+            .await
+        }
+        "graph_provider_import" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let import = args
+                .get("provider_graph")
+                .cloned()
+                .ok_or_else(|| "missing object argument: provider_graph".to_owned())
+                .and_then(|value| {
+                    serde_json::from_value::<GraphProviderImport>(value)
+                        .map_err(|error| format!("invalid graph provider import: {error}"))
+                })?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .graph_provider_import(&workspace, import)
+                    .and_then(|stored| serde_json::to_value(stored).map_err(Into::into))
+            })
+            .await
+        }
+        "graph_provider_status" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .graph_provider_status(&workspace)
+                    .and_then(|providers| serde_json::to_value(providers).map_err(Into::into))
+            })
+            .await
+        }
+        "semantic_provider_status" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .semantic_provider_status(&workspace)
+                    .and_then(|providers| serde_json::to_value(providers).map_err(Into::into))
+            })
+            .await
+        }
+        "semantic_provider_install" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let language = serde_json::from_value::<crate::semantic_provider::SemanticLanguage>(
+                Value::String(required_string(args, "language")?.to_owned()),
+            )
+            .map_err(|error| format!("invalid semantic provider language: {error}"))?;
+            state
+                .harness
+                .semantic_provider_install(&workspace, language)
+                .await
+                .and_then(|result| serde_json::to_value(result).map_err(Into::into))
+        }
+        "semantic_provider_refresh" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let path = string_arg(args, "path").unwrap_or(".").to_owned();
+            let max_files = bounded_usize_arg_range(args, "max_files", 128, 1, 256)?;
+            let max_symbols = bounded_usize_arg_range(args, "max_symbols", 1_000, 1, 2_000)?;
+            state
+                .harness
+                .semantic_provider_refresh(&workspace, &path, max_files, max_symbols)
+                .await
+                .and_then(|refresh| serde_json::to_value(refresh).map_err(Into::into))
+        }
+        "semantic_navigation" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let path = required_string(args, "path")?.to_owned();
+            let symbol = string_arg(args, "symbol").map(str::to_owned);
+            let line = optional_bounded_usize_arg(args, "line", 1)?;
+            let character = optional_bounded_usize_arg(args, "character", 1)?;
+            let intent =
+                serde_json::from_value::<crate::semantic_provider::SemanticNavigationIntent>(
+                    Value::String(string_arg(args, "intent").unwrap_or("inspect").to_owned()),
+                )
+                .map_err(|error| format!("invalid semantic navigation intent: {error}"))?;
+            let max_results = bounded_usize_arg_range(args, "max_results", 50, 1, 100)?;
+            let request = crate::harness::SemanticNavigationRequest {
+                path,
+                symbol,
+                line,
+                character,
+                intent,
+                max_results,
+                new_name: string_arg(args, "new_name").map(str::to_owned),
+                // max_files is not a catalog parameter; keep the previous default.
+                max_files: 32,
+            };
+            state
+                .harness
+                .semantic_navigation(&workspace_id, &workspace, &request)
+                .await
+        }
+        "graph_history" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let limit = bounded_usize_arg(args, "limit", 20, 1, 64)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .graph_history(&workspace, limit)
+                    .and_then(|history| serde_json::to_value(history).map_err(Into::into))
+            })
+            .await
+        }
+        "graph_query" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let query = args
+                .get("query")
+                .cloned()
+                .ok_or_else(|| "missing object argument: query".to_owned())
+                .and_then(|value| {
+                    serde_json::from_value::<GraphQueryInput>(value)
+                        .map_err(|error| format!("invalid graph query: {error}"))
+                })?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .graph_query(&workspace, &query)
+                    .and_then(|result| serde_json::to_value(result).map_err(Into::into))
+            })
+            .await
+        }
+        "graph_diff" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let diff = args.get("diff").cloned().unwrap_or_else(|| json!({}));
+            let diff = serde_json::from_value::<GraphDiffInput>(diff)
+                .map_err(|error| format!("invalid graph diff: {error}"))?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .graph_diff(&workspace, &diff)
+                    .and_then(|result| serde_json::to_value(result).map_err(Into::into))
+            })
+            .await
+        }
+        "traceability_status" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let detail = detail_arg(args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                let mut value = harness
+                    .traceability_status(workspace_id, &workspace)
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))?;
+                if detail == Detail::Summary {
+                    compact_traceability(&mut value);
+                }
+                Ok(value)
+            })
+            .await
+        }
+        "software_context" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let query = required_string(args, "query")?.to_owned();
+            let intent = string_arg(args, "intent").unwrap_or("inspect").to_owned();
+            let budget = bounded_usize_arg_range(args, "budget", 12_000, 1_000, 64_000)?;
+            let requested_scopes = optional_string_array_arg(args, "scopes", 32)?;
+            let detail = detail_arg(args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                let mut value = harness
+                    .software_context(
+                        workspace_id,
+                        &workspace,
+                        &query,
+                        &intent,
+                        budget,
+                        &requested_scopes,
+                    )
+                    .and_then(|context| serde_json::to_value(context).map_err(Into::into))?;
+                // The embedded traceability projection is the same RequirementTrace
+                // payload traceability_status serves. The budget caps how many
+                // requirements come back, not how many resolved references each
+                // one carries, so without this the declared budget understates the
+                // response by an order of magnitude.
+                if detail == Detail::Summary {
+                    if let Some(coverage) = value.get_mut("coverage") {
+                        compact_traceability(coverage);
+                    }
+                }
+                Ok(value)
+            })
+            .await
+        }
+        "open_observatory" => Ok(json!({
+            "url": mcp_catalog::observatory_changes_url(state),
+            "resource": "ui://wcode/observatory",
+            "view": "changes",
+            "served_by_this_process": mcp_catalog::observatory_url(state).is_some(),
+            "workspace": state.workspaces.default_id(),
+        })),
+        "agent_context" => {
+            let query = required_string(args, "query")?.to_owned();
+            let default_workspace = state.workspaces.default_id().to_owned();
+            let selection = workspace_selection::resolve(state, args, &query)?;
+            let (workspace_id, workspace) =
+                (selection.workspace_id.clone(), selection.workspace.clone());
+            let budget = bounded_usize_arg_range(args, "budget", 0, 1_000, 12_000)?;
+            let requested_scopes = optional_string_array_arg(args, "scopes", 32)?;
+            let decision_query = query.clone();
+            let context_harness = state.harness.clone();
+            let context_workspace = workspace.clone();
+            let context_workspace_id = workspace_id.clone();
+            let context_future = run_blocking(move || {
+                context_harness.agent_context(
+                    context_workspace_id,
+                    &context_workspace,
+                    &query,
+                    budget,
+                    &requested_scopes,
+                )
+            });
+            let worktree_harness = state.harness.clone();
+            let worktree_future = worktree_harness.worktree_status_snapshot(&workspace);
+            let (context, worktree) = tokio::join!(context_future, worktree_future);
+            let mut context = context.map_err(|error| error.to_string())?;
+            workspace_selection::apply(&mut context, &selection, &default_workspace);
+            if let Ok(worktree) = worktree {
+                merge_agent_worktree_status(&mut context, &worktree);
+                if let Ok(impact) = state
+                    .harness
+                    .verification_impact_summary(&workspace, &worktree)
+                {
+                    context["verification_impact"] = impact;
+                }
+            }
+            enforce_agent_context_postlude_budget(&mut context);
+            let jev_telemetry = crate::jev::augment_agent_context(&mut context, &decision_query)
+                .await
+                .map_err(|error| format!("Jev augmentation failed: {error}"))?;
+            // Jev may only add bounded review/retrieval work. Re-run the same
+            // output budget after that increase-only routing so optional
+            // postlude fields cannot push Agent Context over its contract.
+            enforce_agent_context_postlude_budget(&mut context);
+            state
+                .monitor
+                .record_agent_context_decision(&workspace_id, &jev_telemetry);
+            Ok(context)
+        }
+        "execution_status" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                crate::execution::refresh(&harness, &workspace_id, &workspace, false)
+            })
+            .await
+        }
+        "execution_policy_status" => {
+            mcp_writer::policy_status(state, args).map_err(anyhow::Error::msg)
+        }
+        "execution_propose" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let input =
+                serde_json::from_value::<crate::execution::ExecutionProposalInput>(args.clone())
+                    .map_err(|error| format!("invalid execution proposal: {error}"))?;
+            run_blocking(move || crate::execution::propose(&workspace, input)).await
+        }
+        "execution_steer" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let input =
+                serde_json::from_value::<crate::execution::ExecutionDirectiveInput>(args.clone())
+                    .map_err(|error| format!("invalid execution steering directive: {error}"))?;
+            run_blocking(move || crate::execution::steer(&workspace, input)).await
+        }
+        "execution_handoff" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let input =
+                serde_json::from_value::<crate::execution::ExecutionHandoffInput>(args.clone())
+                    .map_err(|error| format!("invalid execution handoff: {error}"))?;
+            run_blocking(move || crate::execution::handoff(&workspace, input)).await
+        }
+        "worklist_status" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let detail = detail_arg(args)?;
+            run_blocking(move || {
+                let mut value = crate::worklist::status(&workspace)?;
+                if detail == Detail::Summary {
+                    compact_worklist_status(&mut value);
+                }
+                Ok(value)
+            })
+            .await
+        }
+        "worklist_update" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let update = serde_json::from_value::<crate::worklist::WorklistUpdate>(args.clone())
+                .map_err(|error| format!("invalid worklist update: {error}"))?;
+            let restart = update.restart;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                let mut status = crate::worklist::update(&workspace, update)?;
+                match crate::execution::refresh(&harness, &workspace_id, &workspace, restart) {
+                    Ok(execution) => status["execution"] = execution,
+                    Err(error) => status["execution_sync_error"] = json!(error.to_string()),
+                }
+                Ok(status)
+            })
+            .await
+        }
+        "worklist_claim" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let input = serde_json::from_value::<crate::worklist::WorklistClaimInput>(args.clone())
+                .map_err(|error| format!("invalid worklist claim: {error}"))?;
+            let harness = state.harness.clone();
+            run_blocking(move || crate::worklist::claim(&harness, &workspace_id, &workspace, input))
+                .await
+        }
+        "worklist_submit" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let input =
+                serde_json::from_value::<crate::worklist::WorklistSubmitInput>(args.clone())
+                    .map_err(|error| format!("invalid worklist result: {error}"))?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                let mut status =
+                    crate::worklist::submit(&harness, &workspace_id, &workspace, input)?;
+                match crate::execution::refresh(&harness, &workspace_id, &workspace, false) {
+                    Ok(execution) => status["execution"] = execution,
+                    Err(error) => status["execution_sync_error"] = json!(error.to_string()),
+                }
+                Ok(status)
+            })
+            .await
+        }
+        "semantic_status" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let limit = bounded_usize_arg(args, "limit", 50, 1, 500)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .semantic_status(&workspace_id, &workspace, limit)
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+            })
+            .await
+        }
+        "semantic_query" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let query = required_string(args, "query")?.to_owned();
+            let requested_scopes = optional_string_array_arg(args, "scopes", 32)?;
+            let include_candidates = args
+                .get("include_candidates")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let limit = bounded_usize_arg(args, "limit", 20, 1, 100)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .semantic_query(
+                        &workspace,
+                        &query,
+                        &requested_scopes,
+                        include_candidates,
+                        limit,
+                    )
+                    .and_then(|matches| serde_json::to_value(matches).map_err(Into::into))
+            })
+            .await
+        }
+        "semantic_record" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let input = args
+                .get("fact")
+                .cloned()
+                .ok_or_else(|| "missing object argument: fact".to_owned())
+                .and_then(|value| {
+                    serde_json::from_value::<SemanticCandidateInput>(value)
+                        .map_err(|error| format!("invalid semantic candidate: {error}"))
+                })?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .semantic_record_candidate(&workspace, input)
+                    .and_then(|fact| serde_json::to_value(fact).map_err(Into::into))
+            })
+            .await
+        }
+        "semantic_confirm" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let fact_id = required_string(args, "fact_id")?.to_owned();
+            let attested_by = required_string(args, "attested_by")?.to_owned();
+            let confirmed = args
+                .get("confirmed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !confirmed {
+                return Err(
+                    "semantic_confirm requires confirmed=true after explicit human confirmation"
+                        .to_owned(),
+                );
+            }
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .semantic_confirm(&workspace, &fact_id, &attested_by)
+                    .and_then(|fact| serde_json::to_value(fact).map_err(Into::into))
+            })
+            .await
+        }
+        "semantic_retire" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let fact_id = required_string(args, "fact_id")?.to_owned();
+            let attested_by = required_string(args, "attested_by")?.to_owned();
+            let confirmed = args
+                .get("confirmed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !confirmed {
+                return Err(
+                    "semantic_retire requires confirmed=true after explicit human confirmation"
+                        .to_owned(),
+                );
+            }
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .semantic_retire(&workspace, &fact_id, &attested_by)
+                    .and_then(|fact| serde_json::to_value(fact).map_err(Into::into))
+            })
+            .await
+        }
+        "evidence_status" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let subject = string_arg(args, "subject").map(str::to_owned);
+            let limit = bounded_usize_arg(args, "limit", 50, 1, 500)?;
+            let detail = detail_arg(args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                let mut value = harness
+                    .evidence_status(&workspace_id, &workspace, subject.as_deref(), limit)
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))?;
+                if detail == Detail::Summary {
+                    compact_evidence_status(&mut value);
+                }
+                Ok(value)
+            })
+            .await
+        }
+        "verification_claim" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let reviewer = required_string(args, "reviewer")?.to_owned();
+            let capabilities = string_array_arg(args, "capabilities", 32)?;
+            let role = reviewer_role_arg(args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .verification_claim(&workspace_id, &workspace, &reviewer, &capabilities, role)
+                    .and_then(|job| serde_json::to_value(job).map_err(Into::into))
+            })
+            .await
+        }
+        "verification_submit" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let job_id = required_string(args, "job_id")?.to_owned();
+            let reviewer = required_string(args, "reviewer")?.to_owned();
+            let submission = args
+                .get("submission")
+                .cloned()
+                .ok_or_else(|| "missing object argument: submission".to_owned())
+                .and_then(|value| {
+                    serde_json::from_value::<ReviewSubmission>(value)
+                        .map_err(|error| format!("invalid verification submission: {error}"))
+                })?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .verification_submit(&workspace_id, &workspace, &job_id, &reviewer, submission)
+                    .and_then(|job| serde_json::to_value(job).map_err(Into::into))
+            })
+            .await
+        }
+        "verification_executor_status" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .verification_executor_status(&workspace)
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+            })
+            .await
+        }
+        "language_quality_status" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .language_quality_status(&workspace)
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+            })
+            .await
+        }
+        "language_quality_run" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let language = serde_json::from_value::<crate::semantic_provider::SemanticLanguage>(
+                Value::String(required_string(args, "language")?.to_owned()),
+            )
+            .map_err(|error| format!("invalid language: {error}"))?;
+            let provider_id = required_string(args, "provider_id")?.to_owned();
+            let timeout_seconds =
+                bounded_usize_arg_range(args, "timeout_seconds", 120, 1, 1_800)? as u64;
+            state
+                .harness
+                .language_quality_run(
+                    &workspace_id,
+                    &workspace,
+                    language,
+                    &provider_id,
+                    timeout_seconds,
+                )
+                .await
+                .and_then(|run| serde_json::to_value(run).map_err(Into::into))
+        }
+        "verification_execute_stages" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let plan_id = required_string(args, "plan_id")?.to_owned();
+            state
+                .harness
+                .verification_execute_stages(&workspace_id, &workspace, &plan_id)
+                .await
+        }
+        "verification_stage_submit" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let plan_id = required_string(args, "plan_id")?.to_owned();
+            let submission = args
+                .get("submission")
+                .cloned()
+                .ok_or_else(|| "missing object argument: submission".to_owned())
+                .and_then(|value| {
+                    serde_json::from_value::<StageSubmission>(value)
+                        .map_err(|error| format!("invalid verification stage submission: {error}"))
+                })?;
+            submission.validate().map_err(|error| error.to_string())?;
+            // MCP reports are advisory until an authenticated runner adapter verifies a receipt.
+            let owner = mcp_writer::current_owner();
+            let producer = submission.producer.clone();
+            let reported = submission.verdict;
+            let mut submission = submission;
+            submission.producer = format!("self-reported:mcp:{owner}");
+            submission.verdict = crate::verification::ReviewVerdict::Inconclusive;
+            submission.summary = format!(
+                "Unverified MCP report by {producer}, claimed {reported:?}: {}",
+                submission.summary.chars().take(1_500).collect::<String>()
+            );
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .verification_stage_submit(&workspace_id, &workspace, &plan_id, submission)
+                    .and_then(|evidence| serde_json::to_value(evidence).map_err(Into::into))
+            })
+            .await
+        }
+        "verification_approve" => {
+            super::super::mcp_authorization::human_decision_tool(state, args, "verification").await
+        }
+        "verification_status" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let plan_id = required_string(args, "plan_id")?.to_owned();
+            let harness = state.harness.clone();
+            let git_binding = workspace_git_binding(&harness, &workspace).await;
+            run_blocking(move || {
+                harness
+                    .verification_status(&workspace_id, &workspace, &plan_id, git_binding.as_ref())
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+            })
+            .await
+        }
+        "verification_history" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let limit = bounded_usize_arg(args, "limit", 20, 1, 100)?;
+            let harness = state.harness.clone();
+            let git_binding = workspace_git_binding(&harness, &workspace).await;
+            run_blocking(move || {
+                harness
+                    .verification_history(&workspace_id, &workspace, limit, git_binding.as_ref())
+                    .and_then(|history| serde_json::to_value(history).map_err(Into::into))
+            })
+            .await
+        }
+        "reconciliation_status" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let plan_id = required_string(args, "plan_id")?.to_owned();
+            let include_approval = args
+                .get("include_approval")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                let plan = harness.reconciliation_status(&workspace, &plan_id)?;
+                if include_approval {
+                    let approval = harness.reconciliation_approval_status(
+                        &workspace_id,
+                        &workspace,
+                        &plan_id,
+                    )?;
+                    Ok(json!({"plan": plan, "approval": approval}))
+                } else {
+                    serde_json::to_value(plan).map_err(Into::into)
+                }
+            })
+            .await
+        }
+        "reconciliation_history" => {
+            let (_workspace_id, workspace) = selected_workspace(state, args)?;
+            let limit = bounded_usize_arg(args, "limit", 10, 1, 100)?.clamp(1, 100);
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .reconciliation_history(&workspace, limit)
+                    .and_then(|plans| serde_json::to_value(plans).map_err(Into::into))
+            })
+            .await
+        }
+        "reconciliation_approve" => {
+            super::super::mcp_authorization::human_decision_tool(state, args, "reconciliation")
+                .await
+        }
+        "reconciliation_execution_status" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let plan_id = required_string(args, "plan_id")?.to_owned();
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .reconciliation_execution_status(&workspace_id, &workspace, &plan_id)
+                    .and_then(|status| serde_json::to_value(status).map_err(Into::into))
+            })
+            .await
+        }
+        "reconciliation_claim" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let plan_id = required_string(args, "plan_id")?.to_owned();
+            let executor = required_string(args, "executor")?.to_owned();
+            let task_id = args
+                .get("task_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let kinds = args
+                .get("kinds")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .cloned()
+                        .map(|value| {
+                            serde_json::from_value::<ReconciliationTaskKind>(value).map_err(
+                                |error| format!("invalid reconciliation task kind: {error}"),
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+            let owner_binding = mcp_writer::owner_binding(&mcp_writer::current_owner());
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .reconciliation_claim_owned(
+                        &workspace_id,
+                        &workspace,
+                        &plan_id,
+                        &executor,
+                        &kinds,
+                        crate::reconcile::ReconciliationClaimSelection {
+                            task_id: task_id.as_deref(),
+                            owner_binding: Some(owner_binding.as_str()),
+                        },
+                    )
+                    .and_then(|run| serde_json::to_value(run).map_err(Into::into))
+            })
+            .await
+        }
+        "reconciliation_submit" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let plan_id = required_string(args, "plan_id")?.to_owned();
+            let task_id = required_string(args, "task_id")?.to_owned();
+            let executor = required_string(args, "executor")?.to_owned();
+            let submission = args
+                .get("submission")
+                .cloned()
+                .ok_or_else(|| "missing object argument: submission".to_owned())
+                .and_then(|value| {
+                    serde_json::from_value::<ReconciliationTaskSubmission>(value)
+                        .map_err(|error| format!("invalid reconciliation task submission: {error}"))
+                })?;
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .reconciliation_submit(
+                        &workspace_id,
+                        &workspace,
+                        &plan_id,
+                        &task_id,
+                        &executor,
+                        submission,
+                    )
+                    .and_then(|run| serde_json::to_value(run).map_err(Into::into))
+            })
+            .await
+        }
+        "reconciliation_retry" => {
+            let (workspace_id, workspace) = selected_workspace(state, args)?;
+            let plan_id = required_string(args, "plan_id")?.to_owned();
+            let task_id = required_string(args, "task_id")?.to_owned();
+            let harness = state.harness.clone();
+            run_blocking(move || {
+                harness
+                    .reconciliation_retry(&workspace_id, &workspace, &plan_id, &task_id)
+                    .and_then(|run| serde_json::to_value(run).map_err(Into::into))
+            })
+            .await
+        }
+        _ => Err(anyhow!("unknown intelligence tool: {name}")),
+    };
+    Ok(outcome)
+}
