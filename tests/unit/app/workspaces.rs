@@ -1,5 +1,5 @@
-use super::*;
 use super::args::{parse_workspace_file, parse_workspace_list};
+use super::*;
 
 #[test]
 fn workspace_list_splits_on_the_platform_separator_and_newlines() {

@@ -1,8 +1,16 @@
+use super::support::{
+    append_execution_blocker, build_directive, execution_directory, load, now_ms, persist, validate,
+};
 use super::*;
 use crate::reconcile::ReconciliationPlan;
 use crate::risk::RiskLevel;
 use crate::verification::VerificationPlan;
 use crate::worklist::{self, WorkItemPatch, WorkItemStatus, WorklistUpdate};
+use serde_json::json;
+use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
 
 fn fixture() -> (tempfile::TempDir, Workspace, ToolHarness) {
     let root = tempfile::tempdir().unwrap();
