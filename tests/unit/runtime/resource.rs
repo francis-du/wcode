@@ -1,4 +1,5 @@
 use super::*;
+use crate::harness::REPO_MAP_MAX_FILES;
 
 #[path = "parallelism.rs"]
 mod parallelism;
