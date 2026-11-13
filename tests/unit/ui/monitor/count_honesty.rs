@@ -20,18 +20,24 @@ fn drift_and_evidence_counts_stay_unknown_until_observed() {
         ),
         "7 total · 0 failed · 1 disagreed"
     );
-    let absent =
-        super::monitor_intelligence_labels::evidence_counts_label(None, Some(0), Some(0), UiLanguage::En);
+    let absent = super::monitor_intelligence_labels::evidence_counts_label(
+        None,
+        Some(0),
+        Some(0),
+        UiLanguage::En,
+    );
     assert!(absent.contains("unknown"), "{absent}");
     assert!(!absent.contains('7'), "{absent}");
 }
 
 #[test]
 fn convergence_counts_stay_unknown_until_observed() {
-    let unknown = super::monitor_intelligence_labels::convergence_label(0, 0, 0, 0, false, UiLanguage::En);
+    let unknown =
+        super::monitor_intelligence_labels::convergence_label(0, 0, 0, 0, false, UiLanguage::En);
     assert!(unknown.contains("unknown"), "{unknown}");
     assert!(!unknown.contains('0'), "{unknown}");
-    let zh = super::monitor_intelligence_labels::convergence_label(0, 0, 0, 0, false, UiLanguage::ZhCn);
+    let zh =
+        super::monitor_intelligence_labels::convergence_label(0, 0, 0, 0, false, UiLanguage::ZhCn);
     assert!(zh.contains("未知"), "{zh}");
     assert_eq!(
         super::monitor_intelligence_labels::convergence_label(3, 1, 2, 1, true, UiLanguage::En),
