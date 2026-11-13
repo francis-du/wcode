@@ -4,6 +4,8 @@ use super::mcp_writer_scope::{
     mutation_paths, scopes_allow_path,
 };
 use super::*;
+#[path = "writer_support.rs"]
+mod writer_support;
 use crate::execution_policy::{
     ExecutionEffect, ExecutionPolicyDecision, ExecutionPolicyInput, VerificationFloor,
 };
@@ -19,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+use writer_support::*;
 
 const INTERNAL_OWNER: &str = "wcode-internal-tool-owner";
 const FILE_MUTATION_TOOLS: &[&str] = &[
@@ -938,50 +941,6 @@ pub(crate) fn tool_effect(name: &str, args: &Value) -> ExecutionEffect {
 
 pub(crate) fn sanitized_args(value: &Value) -> Value {
     value.clone()
-}
-
-fn registered_linked_worktree(workspaces: &Workspaces, workspace: &Workspace) -> bool {
-    workspaces.roots().into_iter().any(|(id, _)| {
-        workspaces
-            .select(Some(&id))
-            .ok()
-            .is_some_and(|(_, candidate)| {
-                workspace.is_linked_worktree_of(&candidate).unwrap_or(false)
-            })
-    })
-}
-
-fn is_writer_run(run: &ReconciliationTaskRun) -> bool {
-    matches!(
-        run.task.kind,
-        ReconciliationTaskKind::Design | ReconciliationTaskKind::Implementation
-    ) && run
-        .ownership
-        .as_ref()
-        .is_some_and(|ownership| ownership.mode == ReconciliationClaimMode::SharedWriter)
-}
-
-fn validate_identity(value: &str, max: usize, label: &str) -> Result<(), String> {
-    if value.trim().is_empty() || value.len() > max {
-        return Err(format!("{label} is invalid"));
-    }
-    Ok(())
-}
-
-fn digest(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
-}
-
-fn mutation_domain_id(domain: &Path) -> String {
-    let digest = digest(&domain.to_string_lossy());
-    format!("md-{}", &digest[..16])
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
 }
 
 #[cfg(test)]
