@@ -57,6 +57,11 @@ fn attention_signals_navigate_to_the_object_they_name() {
 }
 
 #[test]
+fn tunnel_telemetry_stays_bounded_and_never_publishes_fake_health() {
+    run_observatory_contract("tests/unit/ui/tunnel_telemetry.cjs", 9);
+}
+
+#[test]
 fn project_navigator_declares_the_loaded_snapshot_scope() {
     run_observatory_contract("tests/unit/ui/navigator_scope.cjs", 7);
 }
