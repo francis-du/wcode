@@ -97,7 +97,8 @@ fn intelligence_no_longer_depends_on_harness_report_or_capability_owners() {
     assert!(harness.contains("pub use crate::report_types::{"));
     let jev = fs::read_to_string("src/intelligence/jev.rs").unwrap();
     assert!(jev.contains("crate::model_tools::model_tools_for_group"));
-    assert!(jev.contains("crate::model_tools::promote_model_tools"));
+    let jev_guidance = fs::read_to_string("src/intelligence/jev_guidance.rs").unwrap();
+    assert!(jev_guidance.contains("crate::model_tools::promote_model_tools"));
     let root = fs::read_to_string("src/lib.rs").unwrap();
     assert!(root.contains("#[path = \"runtime/contracts/report_types.rs\"]"));
     assert!(root.contains("#[path = \"runtime/contracts/model_tools.rs\"]"));
