@@ -16,7 +16,7 @@ verification:
   - {kind: test, path: tests/unit/verification/quality.rs, symbol: polyglot_registry_scopes_nested_manifest_providers_to_their_islands}
   - {kind: test, path: tests/unit/runtime/harness/focus.rs, symbol: focused_python_and_go_tests_compile_exact_island_scoped_commands}
   - {kind: test, path: tests/unit/workspace/policy.rs, symbol: focused_python_and_go_test_filters_are_exact_and_path_bounded}
-  - {kind: test, path: tests/unit/runtime/harness.rs, symbol: agent_context_compiles_edit_ready_pack_with_real_budget_and_sha}
+  - {kind: test, path: tests/unit/runtime/harness/agent_context_pack.rs, symbol: agent_context_compiles_edit_ready_pack_with_real_budget_and_sha}
   - {kind: check, id: rust-test}
   - {kind: test, path: tests/unit/runtime/harness/git_change.rs, symbol: git_non_repository_diagnostic_accepts_complete_native_forms}
   - {kind: test, path: tests/unit/runtime/harness/git_change.rs, symbol: git_non_repository_diagnostic_rejects_unknown_partial_or_mixed_errors}

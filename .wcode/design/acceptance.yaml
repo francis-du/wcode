@@ -576,7 +576,7 @@
       path: tests/unit/semantics/navigation.rs
       symbol: navigation_distinguishes_unsupported_from_failed_queries
     - kind: test
-      path: tests/unit/runtime/harness.rs
+      path: tests/unit/runtime/harness/agent_context_pack.rs
       symbol: agent_context_compiles_edit_ready_pack_with_real_budget_and_sha
     - kind: test
       path: tests/unit/integrations/mcp/calls.rs
