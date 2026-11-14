@@ -37,10 +37,10 @@ implementation:
     path: src/runtime/harness/quality.rs
     symbol: ToolHarness::review_changes
   - kind: symbol
-    path: src/runtime/harness/islands.rs
+    path: src/runtime/harness/islands_own.rs
     symbol: verification_impact_for_snapshot
   - kind: symbol
-    path: src/runtime/harness/islands.rs
+    path: src/runtime/harness/islands_own.rs
     symbol: verification_checks_for_impact
   - kind: symbol
     path: src/runtime/harness/profile.rs

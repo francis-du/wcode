@@ -23,4 +23,4 @@ implementation:
   - {kind: file, path: src/runtime/worklist.rs}
   - {kind: file, path: src/reconciliation/approval.rs}
   - {kind: file, path: src/intelligence/runtime/approval.rs}
-  - {kind: symbol, path: src/integrations/mcp/dispatch/intelligence.rs, symbol: call}
+  - {kind: symbol, path: src/integrations/mcp/dispatch/intelligence_call.rs, symbol: call}

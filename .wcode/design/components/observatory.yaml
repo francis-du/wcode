@@ -104,14 +104,14 @@ implementation:
     path: src/ui/intelligence_web/app/features_changes.js
     symbol: renderVerifiedLearning
   - kind: symbol
-    path: src/integrations/mcp/web.rs
+    path: src/integrations/mcp/web_refresh.rs
     symbol: intelligence_web_project
   - kind: symbol
-    path: src/integrations/mcp/web.rs
+    path: src/integrations/mcp/web_refresh.rs
     symbol: intelligence_web_status
   - kind: symbol
-    path: src/integrations/mcp/web.rs
+    path: src/integrations/mcp/web_refresh.rs
     symbol: intelligence_web_scopes
   - kind: symbol
-    path: src/integrations/mcp/web.rs
+    path: src/integrations/mcp/web_refresh.rs
     symbol: intelligence_web_graph

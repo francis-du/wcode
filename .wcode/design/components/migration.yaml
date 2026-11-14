@@ -16,10 +16,10 @@ depends_on:
   - component:evidence-runtime
 implementation:
   - kind: symbol
-    path: src/verification/migration.rs
+    path: src/verification/migration_accumulator.rs
     symbol: audit
   - kind: symbol
-    path: src/verification/migration.rs
+    path: src/verification/migration_accumulator.rs
     symbol: context_summary
   - kind: symbol
     path: src/runtime/harness/quality/verification_run.rs

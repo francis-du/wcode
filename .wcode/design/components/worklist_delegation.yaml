@@ -21,4 +21,4 @@ implementation:
   - {kind: file, path: src/runtime/harness/context/handoff.rs}
   - {kind: file, path: src/runtime/harness/capabilities.rs}
   - {kind: file, path: src/runtime/harness/capability.rs}
-  - {kind: symbol, path: src/integrations/mcp/dispatch/intelligence.rs, symbol: call}
+  - {kind: symbol, path: src/integrations/mcp/dispatch/intelligence_call.rs, symbol: call}

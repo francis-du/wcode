@@ -102,10 +102,12 @@ impl ProductScope {
             Self::Traceability => &[
                 "src/intelligence/mod.rs",
                 "src/intelligence/analysis.rs",
+                "src/intelligence/analysis_stage.rs",
                 "src/intelligence/context.rs",
                 "src/intelligence/decision.rs",
                 "src/intelligence/jev.rs",
                 "src/intelligence/jev_checkpoint.rs",
+                "src/intelligence/jev_guidance.rs",
                 "src/intelligence/jev_metrics.rs",
                 "src/intelligence/jev_policy.rs",
                 "src/intelligence/runtime_drift.rs",

@@ -185,10 +185,10 @@
       path: src/graph/graph_store.rs
       symbol: persist
     - kind: symbol
-      path: src/graph/graph_store.rs
+      path: src/graph/graph_snapshot.rs
       symbol: query
     - kind: symbol
-      path: src/graph/graph_store.rs
+      path: src/graph/graph_snapshot.rs
       symbol: diff
     - kind: symbol
       path: src/graph/provider_store.rs
@@ -216,7 +216,7 @@
       path: src/semantics/provider/mod.rs
       symbol: status
     - kind: symbol
-      path: src/semantics/provider/mod.rs
+      path: src/semantics/provider/support.rs
       symbol: refresh
     - kind: symbol
       path: src/semantics/provider/auto.rs
@@ -228,7 +228,7 @@
       path: src/semantics/provider/session.rs
       symbol: SemanticSessionPool
     - kind: symbol
-      path: src/semantics/provider/navigation.rs
+      path: src/semantics/provider/navigation_cache.rs
       symbol: navigate
     - kind: file
       path: src/semantics/provider/rename.rs
@@ -538,7 +538,7 @@
     - kind: file
       path: src/integrations/mcp/tool_catalog.rs
     - kind: symbol
-      path: src/integrations/mcp/tasks.rs
+      path: src/integrations/mcp/tasks_command.rs
       symbol: create_tool_task
     - {kind: symbol, path: src/integrations/mcp/task_tools.rs, symbol: command_task_tool}
     - kind: symbol
@@ -746,7 +746,7 @@
       path: src/workspace/registry.rs
       symbol: Workspaces::prefer_specific_for_query
     - kind: symbol
-      path: src/integrations/mcp/dispatch/intelligence.rs
+      path: src/integrations/mcp/dispatch/intelligence_call.rs
       symbol: call
     - kind: symbol
       path: src/runtime/harness/agent_readiness.rs
@@ -814,8 +814,8 @@
       path: src/ui/monitor/state.rs
       symbol: TaskMonitor::mark_tunnel_retry
     - kind: symbol
-      path: src/integrations/mcp/mod.rs
-      symbol: health
+      path: src/integrations/mcp/health.rs
+      symbol: health_diagnostics_snapshot
 
 - schema_version: 1
   id: component:agent-host-install

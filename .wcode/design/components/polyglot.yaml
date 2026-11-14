@@ -36,10 +36,10 @@ implementation:
     path: src/runtime/harness/islands.rs
     symbol: attach_manifest_dependencies
   - kind: symbol
-    path: src/runtime/harness/islands.rs
+    path: src/runtime/harness/islands_own.rs
     symbol: verification_checks_for_snapshot
   - kind: symbol
-    path: src/runtime/harness/islands.rs
+    path: src/runtime/harness/islands_own.rs
     symbol: verification_gaps_for_snapshot
   - kind: symbol
     path: src/verification/quality_provider.rs

@@ -52,6 +52,37 @@ fn every_declared_source_root_maps_back_to_its_scope() {
 }
 
 #[test]
+fn every_production_rust_file_belongs_to_a_product_scope() {
+    // Most scopes declare a directory root, but the Traceability scope lists
+    // individual files under src/intelligence. A new file there stays unmapped
+    // until it is declared, so this guard enumerates the tree rather than
+    // trusting the declared root list.
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut pending = vec![manifest.join("src")];
+    let mut checked = 0usize;
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                let relative = path
+                    .strip_prefix(manifest)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                assert!(
+                    source_scope(&relative).is_some(),
+                    "{relative} is not covered by any Product Scope source root"
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 0, "no Rust source file was found under src/");
+}
+
+#[test]
 fn tool_scope_mapping_exposes_cross_scope_context() {
     let scopes = tool_scopes("software_context");
     assert!(scopes.contains(&ProductScope::Design));
