@@ -2,9 +2,15 @@ use super::*;
 #[path = "credential_redaction.rs"]
 mod credential_redaction;
 use credential_redaction::redact_credential_tokens;
+#[path = "cargo_gate.rs"]
+mod cargo_gate;
 #[cfg(any(windows, test))]
 #[path = "windows_launch.rs"]
 mod windows_launch;
+use cargo_gate::{
+    acquire_cargo_contention_gate, VerificationCommandFlight, VerificationCommandFlightClaim,
+    VerificationCommandFlightKey, VerificationCommandFlightLeader,
+};
 use tokio::sync::{
     OwnedRwLockReadGuard, OwnedRwLockWriteGuard, OwnedSemaphorePermit, RwLock, Semaphore,
 };
@@ -142,164 +148,6 @@ fn cargo_workspace_gate(root: &Path) -> Arc<CargoWorkspaceGate> {
 
 fn cargo_gate_timeout_error() -> anyhow::Error {
     anyhow!("cargo contention gate remained busy for the bounded queue wait")
-}
-
-async fn acquire_cargo_contention_gate(
-    program: &str,
-    args: &[String],
-    workspace_root: &Path,
-    wait_timeout: Duration,
-) -> Result<Option<CargoContentionPermit>> {
-    let lane = match cargo_contention_lane(program, args) {
-        Some(lane) => lane,
-        None => return Ok(None),
-    };
-    let deadline = tokio::time::Instant::now() + wait_timeout;
-    match lane {
-        CargoContentionLane::Registry => {
-            let permit = tokio::time::timeout(
-                wait_timeout,
-                Arc::clone(cargo_registry_gate()).acquire_owned(),
-            )
-            .await
-            .map_err(|_| cargo_gate_timeout_error())?
-            .map_err(|_| anyhow!("cargo contention gate is shutting down"))?;
-            Ok(Some(CargoContentionPermit::Registry { _permit: permit }))
-        }
-        CargoContentionLane::WorkspaceTest => {
-            let gate = cargo_workspace_gate(workspace_root);
-            let slot = tokio::time::timeout(
-                deadline.saturating_duration_since(tokio::time::Instant::now()),
-                Arc::clone(&gate.test_slots).acquire_owned(),
-            )
-            .await
-            .map_err(|_| cargo_gate_timeout_error())?
-            .map_err(|_| anyhow!("cargo test contention gate is shutting down"))?;
-            let access = tokio::time::timeout(
-                deadline.saturating_duration_since(tokio::time::Instant::now()),
-                Arc::clone(&gate.access).read_owned(),
-            )
-            .await
-            .map_err(|_| cargo_gate_timeout_error())?;
-            Ok(Some(CargoContentionPermit::WorkspaceTest {
-                _gate: gate,
-                _slot: slot,
-                _access: access,
-            }))
-        }
-        CargoContentionLane::WorkspaceExclusive | CargoContentionLane::RegistryAndWorkspace => {
-            let gate = cargo_workspace_gate(workspace_root);
-            let access = tokio::time::timeout(
-                deadline.saturating_duration_since(tokio::time::Instant::now()),
-                Arc::clone(&gate.access).write_owned(),
-            )
-            .await
-            .map_err(|_| cargo_gate_timeout_error())?;
-            // Fetch may create Cargo.lock; update may replace it. Reserve local
-            // writer access first, so waiting for local readers cannot monopolize
-            // the global registry. Both waits share the same absolute deadline.
-            let registry = if lane == CargoContentionLane::RegistryAndWorkspace {
-                Some(
-                    tokio::time::timeout_at(
-                        deadline,
-                        Arc::clone(cargo_registry_gate()).acquire_owned(),
-                    )
-                    .await
-                    .map_err(|_| cargo_gate_timeout_error())?
-                    .map_err(|_| anyhow!("cargo contention gate is shutting down"))?,
-                )
-            } else {
-                None
-            };
-            Ok(Some(CargoContentionPermit::WorkspaceExclusive {
-                _gate: gate,
-                _access: access,
-                _registry: registry,
-            }))
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct VerificationCommandFlightKey {
-    workspace_root: PathBuf,
-    cwd: PathBuf,
-    program: String,
-    args: Vec<String>,
-    revision: String,
-    timeout_seconds: u64,
-    lane: &'static str,
-}
-
-struct VerificationCommandFlight {
-    result: Mutex<Option<std::result::Result<CommandResult, String>>>,
-    notify: tokio::sync::Notify,
-}
-
-enum VerificationCommandFlightClaim {
-    Leader(VerificationCommandFlightLeader),
-    Follower(Arc<VerificationCommandFlight>),
-}
-
-struct VerificationCommandFlightLeader {
-    flight: Arc<VerificationCommandFlight>,
-    completed: bool,
-}
-
-impl VerificationCommandFlight {
-    fn new() -> Self {
-        Self {
-            result: Mutex::new(None),
-            notify: tokio::sync::Notify::new(),
-        }
-    }
-
-    fn publish(&self, result: std::result::Result<CommandResult, String>) {
-        let mut slot = self
-            .result
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if slot.is_none() {
-            *slot = Some(result);
-            drop(slot);
-            self.notify.notify_waiters();
-        }
-    }
-
-    async fn wait(&self) -> Result<CommandResult> {
-        loop {
-            let notified = self.notify.notified();
-            if let Some(result) = self
-                .result
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .clone()
-            {
-                return result.map_err(anyhow::Error::msg);
-            }
-            notified.await;
-        }
-    }
-}
-
-impl VerificationCommandFlightLeader {
-    fn complete(&mut self, result: &Result<CommandResult>) {
-        self.flight.publish(match result {
-            Ok(result) => Ok(result.clone()),
-            Err(error) => Err(error.to_string()),
-        });
-        self.completed = true;
-    }
-}
-
-impl Drop for VerificationCommandFlightLeader {
-    fn drop(&mut self) {
-        if !self.completed {
-            self.flight.publish(Err(
-                "in-flight verification command leader ended before publishing a result".to_owned(),
-            ));
-        }
-    }
 }
 
 fn verification_command_flights(
