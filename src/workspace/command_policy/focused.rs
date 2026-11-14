@@ -94,18 +94,14 @@ fn bounded_pytest_filter(program: &str, args: &[String]) -> bool {
 }
 
 fn safe_focused_relative_path(path: &str, suffix: Option<&str>) -> bool {
-    if path.is_empty()
-        || path.starts_with('-')
-        || path.contains(['\\', ':'])
-        || suffix.is_some_and(|suffix| !path.ends_with(suffix))
-        || Path::new(path).is_absolute()
-        || path
+    !path.is_empty()
+        && !path.starts_with('-')
+        && !path.contains(['\\', ':'])
+        && suffix.is_none_or(|suffix| path.ends_with(suffix))
+        && !Path::new(path).is_absolute()
+        && !path
             .split('/')
             .any(|component| component.is_empty() || matches!(component, "." | ".."))
-    {
-        return false;
-    }
-    true
 }
 
 fn simple_test_identifier(value: &str) -> bool {

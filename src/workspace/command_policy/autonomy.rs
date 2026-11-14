@@ -142,18 +142,14 @@ fn safe_flutter_file_reporter(arg: &str) -> bool {
     let Some((reporter, path)) = spec.split_once(':') else {
         return false;
     };
-    if !matches!(
+    matches!(
         reporter,
         "compact" | "expanded" | "json" | "github" | "silent"
-    ) || path.is_empty()
-        || Path::new(path).is_absolute()
-        || path
+    ) && !path.is_empty()
+        && !Path::new(path).is_absolute()
+        && !path
             .split(['/', '\\'])
             .any(|component| matches!(component, "" | "." | ".."))
-    {
-        return false;
-    }
-    true
 }
 
 pub(super) fn validate_mix_command(args: &[String], allow_risky_exec: bool) -> Result<()> {
