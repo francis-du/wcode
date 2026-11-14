@@ -15,7 +15,7 @@ statement: >-
   argument, working-directory, authorization, output and exit-status rules when using these launchers.
 verification:
   - kind: test
-    path: tests/unit/workspace/mod.rs
+    path: tests/unit/workspace/command_policy.rs
     symbol: command_policy_keeps_direct_checks_safe_and_repository_execution_exact
   - kind: test
     path: tests/unit/workspace/policy.rs

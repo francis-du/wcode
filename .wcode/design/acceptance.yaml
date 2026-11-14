@@ -72,7 +72,7 @@
     Large MCP worktree reviews preview 32 file rows, preserve every finding/count/check and explicitly report omitted details;
     detail=full returns all reported rows. Projection never changes internal review, source-truncation or Evidence semantics.
   verification:
-    - {kind: test, path: tests/unit/workspace/mod.rs, symbol: bounded_direct_and_harness_checks_run_without_risky_exec}
+    - {kind: test, path: tests/unit/workspace/command_policy.rs, symbol: bounded_direct_and_harness_checks_run_without_risky_exec}
     - {kind: test, path: tests/unit/integrations/mcp/review_git.rs, symbol: review_output_large_worktree_avoids_repeating_all_file_details}
     - {kind: test, path: tests/unit/integrations/mcp/review_git.rs, symbol: review_output_rejects_invalid_detail_before_inspection}
     - {kind: test, path: tests/unit/workspace/execution.rs, symbol: git_probe_finishes_while_repository_process_capacity_is_occupied}
@@ -283,9 +283,9 @@
     - {kind: test, path: tests/unit/workspace/policy.rs, symbol: bounded_git_inspection_includes_repository_grep_without_helper_or_scope_escape}
     - {kind: test, path: tests/unit/workspace/policy_remote.rs, symbol: bounded_github_repository_lifecycle_is_autonomous_but_sensitive_surfaces_stay_closed}
     - {kind: test, path: tests/unit/workspace/policy_remote.rs, symbol: bounded_remote_git_lifecycle_is_autonomous_while_destructive_shapes_stay_blocked}
-    - {kind: test, path: tests/unit/workspace/mod.rs, symbol: command_policy_keeps_direct_checks_safe_and_repository_execution_exact}
+    - {kind: test, path: tests/unit/workspace/command_policy.rs, symbol: command_policy_keeps_direct_checks_safe_and_repository_execution_exact}
     - {kind: test, path: tests/unit/workspace/policy_polyglot.rs, symbol: every_supported_language_has_an_autonomous_development_tool_path}
-    - {kind: test, path: tests/unit/workspace/mod.rs, symbol: hardened_runtime_executor_runs_without_repetitive_authorization}
+    - {kind: test, path: tests/unit/workspace/command_policy.rs, symbol: hardened_runtime_executor_runs_without_repetitive_authorization}
     - kind: test
       path: tests/unit/integrations/mcp/stdio.rs
       symbol: human_decisions_are_permissive_by_default_and_ignore_client_approver_authority

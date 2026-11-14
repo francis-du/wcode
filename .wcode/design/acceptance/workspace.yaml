@@ -114,7 +114,7 @@ verification:
     path: tests/unit/workspace/mod.rs
     symbol: coding_primitives_create_write_edit_move_and_batch_safely
   - kind: test
-    path: tests/unit/workspace/mod.rs
+    path: tests/unit/workspace/command_policy.rs
     symbol: workspace_command_allowlist_supports_defaults_and_operator_authorized_programs
   - kind: test
     path: tests/unit/workspace/execution.rs
@@ -138,7 +138,7 @@ verification:
     path: tests/unit/runtime/process_admission.rs
     symbol: host_process_cap_bounds_aggregate_subspace_activity
   - kind: test
-    path: tests/unit/workspace/mod.rs
+    path: tests/unit/workspace/command_policy.rs
     symbol: command_revocation_is_recorded_without_blocking_execution
   - kind: test
     path: tests/unit/workspace/access.rs
