@@ -221,10 +221,10 @@
       path: tests/unit/workspace/scheduler.rs
       symbol: coalesced_transaction_limit_is_checked_before_execution
     - kind: test
-      path: tests/unit/integrations/mcp/calls.rs
+      path: tests/unit/integrations/mcp/fanout_calls.rs
       symbol: parallel_fanout_skips_failed_dependencies_but_finishes_independent_work
     - kind: test
-      path: tests/unit/integrations/mcp/calls.rs
+      path: tests/unit/integrations/mcp/fanout_calls.rs
       symbol: cancelling_fanout_does_not_detach_queued_writes
     - kind: test
       path: tests/unit/integrations/mcp/dispatch.rs

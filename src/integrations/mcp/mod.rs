@@ -821,6 +821,9 @@ pub(crate) fn jsonrpc_error(id: Value, code: i64, message: impl Into<String>) ->
 #[path = "../../../tests/unit/integrations/mcp/bug_patterns.rs"]
 mod bug_pattern_tests;
 #[cfg(test)]
+#[path = "../../../tests/unit/integrations/mcp/fanout_calls.rs"]
+mod fanout_call_tests;
+#[cfg(test)]
 #[path = "../../../tests/unit/integrations/mcp/fanout_liveness.rs"]
 mod fanout_liveness_tests;
 #[cfg(test)]
