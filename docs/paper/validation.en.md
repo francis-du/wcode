@@ -53,4 +53,14 @@ The checks below were run on the current tree. They concern artifact and reposit
 - `node tests/release_audit.cjs --require-clean` passes all 300 distinct adversarial rounds with stable inputs and a clean Git tree.
 - The macOS, Linux and Windows archives for v0.9.14 were published and re-verified from fresh downloads by the release workflow.
 
+## Current verification state (checked 2026-11-14)
+
+The checks below were run on the current tree. They concern artifact and repository consistency, not a new Check history experiment.
+
+- `python3 tests/paper_artifacts.py` exits 0 with `raw_report_unavailable`: the canonical raw report is still absent, so raw-sample and control verification stay skipped and the manuscript is checked against the retained selected fields only.
+- `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets -- -D warnings` and `cargo audit` are clean. The audit reports no vulnerability after rustix, quinn-proto and quinn-udp moved to their patched releases.
+- `cargo test --locked` passes with no failing target: 2058 library tests (9 ignored) and every integration target.
+- The release quality gate's `intelligence --check --json` exits 0: design→implementation coverage is 924 of 924, Product Scope coverage is 385 of 385 source files, and all 66 requirements are complete with none partial or missing. The two Product Scope gaps and the eighteen stale symbol references that previously kept this gate red were corrected in the same tree.
+- No new experiment, corpus, evaluator, submission or website deployment is implied by this entry.
+
 The September 18 record above still stands: a frozen source artifact, independent holdout, controlled baselines and fixed-model task evaluation remain outstanding research work.
