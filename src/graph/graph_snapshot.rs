@@ -65,9 +65,14 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphQueryInput) -> Result<Gr
             }
         }
     } else {
+        // The selection is bounded by `limit`, so hashing it turns the full edge
+        // scan from a string comparison per edge into a constant-time lookup.
+        let selected_ids: std::collections::HashSet<&str> =
+            selected.iter().map(String::as_str).collect();
         for edge in &stored.snapshot.graph.edges {
             if input.edge_kind.is_some_and(|kind| kind != edge.kind)
-                || (!selected.contains(&edge.from) && !selected.contains(&edge.to))
+                || (!selected_ids.contains(edge.from.as_str())
+                    && !selected_ids.contains(edge.to.as_str()))
             {
                 continue;
             }

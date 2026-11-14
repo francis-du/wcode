@@ -157,7 +157,7 @@ pub(crate) fn query(workspace: &Workspace, input: &GraphChainInput) -> Result<Gr
             if !code_chain_node_kind(neighbor_node.kind) {
                 continue;
             }
-            if edge_keys.insert((edge.from.clone(), edge.to.clone(), edge.kind)) {
+            if edge_keys.insert((edge.from.as_str(), edge.to.as_str(), edge.kind)) {
                 if edges.len() >= edge_limit {
                     truncated = true;
                     continue;
