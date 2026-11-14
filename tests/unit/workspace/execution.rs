@@ -255,6 +255,34 @@ async fn cargo_registry_gate_is_global_but_workspace_gates_are_independent() {
     drop((workspace, independent));
 }
 
+/// A fixture written moments earlier can transiently report `ETXTBSY` on
+/// overlay-backed filesystems. That says nothing about the timeout contract
+/// under test, so the exec is retried instead of failing the whole run.
+async fn spawn_timeout_fixture(root: &std::path::Path, program: &str) -> tokio::process::Child {
+    let executable = root.join(program);
+    let mut attempt = 0_u8;
+    loop {
+        let mut command = tokio::process::Command::new(&executable);
+        command
+            .arg("timeout")
+            .current_dir(root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        match command.spawn() {
+            Ok(child) => return child,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::ExecutableFileBusy || attempt >= 20 {
+                    panic!("timeout fixture must start: {error}");
+                }
+                attempt += 1;
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }
+    }
+}
+
 fn command_fixture() -> (tempfile::TempDir, Workspace, String) {
     static BUILT: OnceLock<tempfile::TempDir> = OnceLock::new();
     let built = BUILT.get_or_init(|| {
@@ -394,16 +422,7 @@ fn verification_count_fixture() -> (tempfile::TempDir, Workspace, String) {
 #[tokio::test]
 async fn timed_out_command_returns_partial_diagnostics_without_replaying_effects() {
     let (root, _workspace, program) = command_fixture();
-    let executable = root.path().join(&program);
-    let mut command = tokio::process::Command::new(executable);
-    command
-        .arg("timeout")
-        .current_dir(root.path())
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    let mut child = command.spawn().expect("timeout fixture must start");
+    let mut child = spawn_timeout_fixture(root.path(), &program).await;
     // Keep stdin outside Child: wait() otherwise closes it before the timeout.
     let mut release = child.stdin.take().unwrap();
     let ready = root.path().join("timeout-ready.txt");
