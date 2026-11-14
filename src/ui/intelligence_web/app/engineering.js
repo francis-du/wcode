@@ -167,6 +167,29 @@ function focusSelectedRequirement({ focus = false } = {}) {
   target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
   if (focus) target.focus({ preventScroll: true });
 }
+// A file jump must land on that file, not merely on the files region: the
+// structure filter or the bounded first page can both hide the target, and the
+// jump would otherwise leave the reader open on a file the tree never showed.
+function focusSelectedFileEntry(path) {
+  const entries = state.project?.structure?.entries || [];
+  if (!entries.some(file => file.path === path)) return;
+  const query = String(els.fileSearch?.value || "").trim().toLowerCase();
+  const visible = query
+    ? entries.filter(file => String(file.path || "").toLowerCase().includes(query))
+    : entries;
+  if (!visible.slice(0, FILE_TREE_PAGE_SIZE).some(file => file.path === path)) {
+    if (els.fileSearch) els.fileSearch.value = "";
+    state.fileTreeQuery = "";
+    state.fileTreeExpanded = true;
+    invalidate("fileTree");
+    renderProjectStructure();
+  }
+  const target = [...(els.fileTree?.querySelectorAll("[data-source-path]") || [])]
+    .find(button => button.dataset.sourcePath === path);
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+  target.focus({ preventScroll: true });
+}
 function activateProjectNavigatorItem(item) {
   if (!item) return;
   if (item.kind === "subsystem") {
@@ -191,6 +214,7 @@ function activateProjectNavigatorItem(item) {
   } else if (item.kind === "file") {
     revealSection("filesSection");
     void openCodeReader(item.id);
+    requestAnimationFrame(() => focusSelectedFileEntry(item.id));
   }
   els.projectNavigator.value = "";
   els.navigatorResults.classList.add("hidden");
