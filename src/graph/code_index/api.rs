@@ -10,7 +10,6 @@ use language_configs::build_language_configs;
 
 static LANGUAGE_CONFIGS: OnceLock<Result<Arc<LanguageConfigs>, String>> = OnceLock::new();
 
-
 #[derive(Clone, Copy, Default)]
 struct SymbolResolutionCandidates {
     qualified_index: Option<usize>,
