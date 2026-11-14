@@ -922,24 +922,6 @@ async function run(){
     assert.deepEqual(s.context.__openedChanges,['src/a.rs'],'a change jump must open that change');
     assert.deepEqual(s.context.__openedFiles,['src/b.rs'],'a file jump must open that file');
   });
-  await test('file navigation focuses the exact tree entry instead of only revealing the region',async()=>{
-    const s=sandbox();
-    s.context.fixture={...project(),structure:{entries:[{path:"src/a.rs",language:"rust",lines:1},{path:"src/b.rs",language:"rust",lines:1}],largest_files:[],oversized_files:0,truncated:false}};
-    s.run('state.project=fixture;');
-    const target=s.node('#navigatorFileTarget');
-    target.dataset.sourcePath='src/b.rs';
-    let scrolled=0,focused=0;
-    target.scrollIntoView=()=>{scrolled++;};
-    target.focus=()=>{focused++;};
-    const tree=s.node('#fileTree');
-    tree.querySelectorAll=(selector)=>selector.includes('data-source-path')?[target]:[];
-    s.context.__openedFiles=[];
-    s.run('openCodeReader=path=>__openedFiles.push(path);');
-    s.run('activateProjectNavigatorItem({kind:"file",id:"src/b.rs"});');
-    assert.deepEqual(s.context.__openedFiles,['src/b.rs'],'a file jump must open that file');
-    assert.equal(scrolled,1,'the tree entry must scroll into view');
-    assert.equal(focused,1,'the tree entry must receive focus');
-  });
   await test('global shortcuts ignore held toggle keys and keep palette focus scoped',async()=>{
     const s=sandbox();let navigatorFocus=0;
     s.node('#projectNavigator').focus=()=>{navigatorFocus++;};

@@ -160,3 +160,25 @@ test('the legacy projection never invents a path for a path-less risk', () => {
   assert.ok(signal, 'the path-less risk must stay on the diagnostics section');
   assert.equal(signal.dataset.summaryPath, undefined, 'no path may be invented');
 });
+
+test('a navigator file jump focuses the tree entry it names, not just the region', () => {
+  const s = sandbox();
+  s.context.fixture = { ...project(), structure: { entries: [
+    { path: 'src/a.rs', language: 'rust', lines: 1 },
+    { path: 'src/b.rs', language: 'rust', lines: 1 },
+  ], largest_files: [], oversized_files: 0, truncated: false } };
+  s.run('state.project=fixture;');
+  const target = s.node('#navigatorFileTarget');
+  target.dataset.sourcePath = 'src/b.rs';
+  let scrolled = 0, focused = 0;
+  target.scrollIntoView = () => { scrolled++; };
+  target.focus = () => { focused++; };
+  const tree = s.node('#fileTree');
+  tree.querySelectorAll = selector => selector.includes('data-source-path') ? [target] : [];
+  s.context.__openedFiles = [];
+  s.run('openCodeReader=path=>__openedFiles.push(path);');
+  s.run('activateProjectNavigatorItem({kind:"file",id:"src/b.rs"});');
+  assert.deepEqual(s.context.__openedFiles, ['src/b.rs'], 'a file jump must open that file');
+  assert.equal(scrolled, 1, 'the named tree entry must scroll into view');
+  assert.equal(focused, 1, 'the named tree entry must receive focus');
+});
