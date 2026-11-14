@@ -6,7 +6,6 @@ authors = ["francis-du"]
 description = "Engineering control plane for coding agents"
 license = "Apache-2.0"
 repository = "https://github.com/francis-du/wcode"
-homepage = "https://wcode.francis.run/"
 documentation = "https://wcode.francis.run/"
 readme = "README.md"
 keywords = ["mcp", "coding", "vibe", "intelligence", "developer-tools"]
