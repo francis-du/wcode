@@ -786,4 +786,3 @@ fn markdown_names(directory: &Path) -> BTreeSet<String> {
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .collect()
 }
-

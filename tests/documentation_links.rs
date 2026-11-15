@@ -203,4 +203,3 @@ fn published_documentation_links_resolve_to_pages_or_assets() {
         broken.join("\n")
     );
 }
-
