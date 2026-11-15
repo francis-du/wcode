@@ -18,10 +18,17 @@ import re
 import signal
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
 import time
+
+# The archive and inventory helpers live beside this script; make the directory
+# importable so both `python3 tests/standalone.py` and the module loader used by
+# tests/unit/architecture/standalone.py can reach them.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from standalone_env import ENV_KEYS, WINDOWS_ENV_KEYS, StandaloneError, controlled_env
 
 try:
     import tomllib
@@ -82,22 +89,6 @@ REQUIRED_FILES = (
     "src/lib.rs", "src/main.rs", "tests/source_layout.rs",
     "tests/standalone.py", "tests/unit/architecture/standalone.py",
 )
-ENV_KEYS = (
-    "PATH", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA",
-    "APPDATA", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT",
-    "TEMP", "TMP", "TMPDIR", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN",
-    "LANG", "LC_ALL", "TZ", "NUMBER_OF_PROCESSORS",
-)
-# Preserve tool discovery and library paths, not CL/LINK/RUSTFLAGS options.
-# MSVC requires INCLUDE/LIB/LIBPATH; find-msvc-tools also uses the installation
-# and SDK variables below. Keep them Windows-only and match names as Windows does.
-WINDOWS_ENV_KEYS = (
-    "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ProgramData",
-    "ALLUSERSPROFILE", "INCLUDE", "LIB", "LIBPATH", "VCINSTALLDIR",
-    "VSINSTALLDIR", "VCToolsInstallDir", "VCToolsVersion", "WindowsSdkDir",
-    "WindowsSDKVersion", "WindowsSDKLibVersion", "UniversalCRTSdkDir", "UCRTVersion",
-    "VSCMD_ARG_HOST_ARCH", "VSCMD_ARG_TGT_ARCH",
-)
 GENERATED_FILES = {"Cargo.toml.orig", ".cargo_vcs_info.json"}
 OSS_PACKAGE_SPECS = (
     ("wcode", ".", ""),
@@ -108,8 +99,6 @@ WINDOWS_DEVICES = {"con", "prn", "aux", "nul"} | {
 }
 
 
-class StandaloneError(RuntimeError):
-    """A controlled diagnostic with no child output or environment."""
 
 
 class StageReport:
@@ -183,23 +172,6 @@ def emit(stage: str, status: str, **details: object) -> None:
     if REPORT is not None:
         REPORT.record(stage, status, details)
     print(json.dumps({"stage": stage, "status": status, **details}), flush=True)
-
-
-def controlled_env(source: dict[str, str] | None = None) -> dict[str, str]:
-    source = os.environ if source is None else source
-    if os.name == "nt":
-        folded = {key.upper(): value for key, value in source.items()}
-        env = {key: folded[key.upper()] for key in (*ENV_KEYS, *WINDOWS_ENV_KEYS)
-               if key.upper() in folded}
-    else:
-        env = {key: source[key] for key in ENV_KEYS if key in source}
-    env.update({
-        "CARGO_NET_OFFLINE": "true",
-        "CARGO_TERM_COLOR": "never", "RUST_BACKTRACE": "0",
-        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_TERMINAL_PROMPT": "0", "GIT_ATTR_NOSYSTEM": "1",
-    })
-    return env
 
 
 def stop_process(process: subprocess.Popen[bytes], env: dict[str, str]) -> None:
