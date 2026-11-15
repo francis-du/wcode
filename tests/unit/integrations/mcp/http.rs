@@ -8,6 +8,8 @@ use std::fs;
 
 #[path = "activity.rs"]
 mod activity;
+#[path = "change_impact.rs"]
+mod change_impact;
 #[path = "change_view.rs"]
 mod change_view;
 #[path = "code_navigation.rs"]

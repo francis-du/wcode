@@ -34,10 +34,10 @@ verification:
   - {kind: test, path: tests/unit/integrations/mcp/change_view.rs, symbol: change_detail_http_pairs_deletion_only_body_edit_with_exact_after_symbol}
   - {kind: test, path: tests/unit/integrations/mcp/change_view.rs, symbol: change_detail_http_never_maps_staged_ranges_onto_a_newer_unstaged_worktree}
   - {kind: test, path: tests/unit/integrations/mcp/change_view.rs, symbol: change_detail_http_allows_protected_paths_and_keeps_path_invariants}
-  - {kind: test, path: tests/unit/integrations/mcp/change_view.rs, symbol: change_relation_normalization_marks_capped_or_invalid_locations_partial}
-  - {kind: test, path: tests/unit/integrations/mcp/change_view.rs, symbol: change_symbol_impact_is_bound_to_the_selected_changed_symbol_and_snapshot}
-  - {kind: test, path: tests/unit/integrations/mcp/change_view.rs, symbol: change_symbol_impact_rejects_counterpart_only_after_definition}
-  - {kind: test, path: tests/unit/integrations/mcp/change_view.rs, symbol: change_symbol_impact_never_rebases_staged_symbols_onto_newer_worktree_bytes}
+  - {kind: test, path: tests/unit/integrations/mcp/change_impact.rs, symbol: change_relation_normalization_marks_capped_or_invalid_locations_partial}
+  - {kind: test, path: tests/unit/integrations/mcp/change_impact.rs, symbol: change_symbol_impact_is_bound_to_the_selected_changed_symbol_and_snapshot}
+  - {kind: test, path: tests/unit/integrations/mcp/change_impact.rs, symbol: change_symbol_impact_rejects_counterpart_only_after_definition}
+  - {kind: test, path: tests/unit/integrations/mcp/change_impact.rs, symbol: change_symbol_impact_never_rebases_staged_symbols_onto_newer_worktree_bytes}
   - {kind: test, path: tests/unit/integrations/mcp/code_navigation.rs, symbol: code_source_is_node_resolved_snapshot_bound_and_stale_safe}
   - {kind: test, path: tests/unit/integrations/mcp/code_navigation.rs, symbol: current_change_symbol_refreshes_stale_graph_before_exact_drilldown}
   - {kind: test, path: tests/unit/ui/observatory.rs, symbol: observatory_change_view_is_readonly_scoped_and_snapshot_bound}
