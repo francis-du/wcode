@@ -27,4 +27,4 @@ verification:
   - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_corrupt_history_is_reported_without_changing_readiness}
   - {kind: test, path: tests/unit/runtime/harness/context_lessons.rs, symbol: context_lessons_tight_budget_retains_the_same_complete_target_body}
   - {kind: test, path: tests/unit/runtime/harness/convention_cache.rs, symbol: concurrent_project_profiles_keep_same_root_permission_modes_separate}
-  - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: handoff_cold_warm_context_keeps_identical_model_body_and_private_guards}
+  - {kind: test, path: tests/unit/integrations/mcp/workflow_verification.rs, symbol: handoff_cold_warm_context_keeps_identical_model_body_and_private_guards}

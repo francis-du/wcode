@@ -31,7 +31,7 @@ verification:
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_parallel_runnable_is_a_nonoverlapping_subset}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: simultaneous_worklist_claims_cannot_duplicate_one_lane}
   - {kind: test, path: tests/unit/runtime/harness/capability.rs, symbol: multi_agent_intent_routes_claim_submit_without_rerouting_identifiers}
-  - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: worker_lanes_route_claims_results_and_protected_public_observation}
+  - {kind: test, path: tests/unit/integrations/mcp/workflow_verification.rs, symbol: worker_lanes_route_claims_results_and_protected_public_observation}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: worklist_reports_bound_unicode_scalars_and_keep_live_dependencies_complete}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: expired_claim_can_be_replanned_without_old_capability}
   - {kind: test, path: tests/unit/runtime/worklist_delegation.rs, symbol: single_lane_replies_do_not_repeat_unrelated_worklist_history}

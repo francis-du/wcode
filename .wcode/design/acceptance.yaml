@@ -85,7 +85,7 @@
     - {kind: test, path: tests/unit/runtime/harness/verification_errors.rs, symbol: default_verification_timeout_gives_full_rust_gates_a_bounded_cold_floor}
     - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: developer_workflow_fitness_reaches_verified_edit_and_recovers_from_failures}
     - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: developer_workflow_fitness_is_polyglot_for_go_deno_python_and_node}
-    - {kind: test, path: tests/unit/integrations/mcp/workflow.rs, symbol: verification_failure_context_redacts_secrets_and_never_claims_edit_ready}
+    - {kind: test, path: tests/unit/integrations/mcp/workflow_verification.rs, symbol: verification_failure_context_redacts_secrets_and_never_claims_edit_ready}
     - {kind: test, path: tests/unit/workspace/policy_environment.rs, symbol: python_execution_uses_one_isolated_nonwriting_bytecode_namespace}
     - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: exact_revision_static_pass_reuses_without_minting_duplicate_evidence}
     - {kind: test, path: tests/unit/runtime/harness/verification_reuse.rs, symbol: source_design_and_command_changes_invalidate_static_reuse}
