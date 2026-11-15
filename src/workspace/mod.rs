@@ -623,6 +623,18 @@ impl Workspace {
         if locked != resolved {
             bail!("delete target changed after authorization; request approval again");
         }
+        // Serialize with every other writer. Without this lock a concurrent
+        // replace_text could commit between the checks above and the removal
+        // below, and the delete would destroy a write whose hash was never
+        // approved.
+        let file_lock = self.write_lock_for(&locked)?;
+        let _write_guard = file_lock
+            .lock()
+            .map_err(|_| anyhow!("file write lock poisoned"))?;
+        let settled = self.existing_path(path)?;
+        if settled != locked {
+            bail!("delete target changed after authorization; request approval again");
+        }
         if kind == "file" {
             ensure_single_link_file(&locked)?;
             let expected = expected_sha256.expect("file deletion checked expected hash above");

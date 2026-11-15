@@ -215,11 +215,22 @@ fn project_target_argument(program: &str, value: &str) -> Result<bool> {
     } else if value.starts_with('@') && value.contains("//") {
         // External repository labels are resolved by the repository's checked-in
         // build configuration rather than as host filesystem paths.
-        return Ok(true);
+        Some(
+            value
+                .split_once("//")
+                .map(|(_, path)| path)
+                .unwrap_or_default(),
+        )
     } else {
         None
     };
     let Some(local) = local else { return Ok(false) };
+    // A `..` component is never a valid label path, so a value such as
+    // `--output_base=//../../tmp/out` is a host filesystem path rather than a
+    // build target. Fall through to the ordinary containment check.
+    if local.split(['/', '\\']).any(|component| component == "..") {
+        return Ok(false);
+    }
     let path = local
         .split(':')
         .next()
@@ -752,6 +763,9 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
     )
 }
 
+#[cfg(test)]
+#[path = "../../tests/unit/workspace/policy_command_arguments.rs"]
+mod command_argument_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/workspace/policy_environment.rs"]
 mod environment_tests;
