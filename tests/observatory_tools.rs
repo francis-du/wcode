@@ -93,3 +93,56 @@ fn retained_job_output_search_preserves_scope_focus_and_scroll() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// Every UI suite must be reachable from a runner. A suite that no other file
+/// names silently rots, so a newly added file that nothing invokes fails here.
+#[test]
+fn every_ui_suite_is_referenced_by_a_runner() {
+    fn collect(root: &std::path::Path, sources: &mut Vec<(std::path::PathBuf, String)>) {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == "target") {
+                    continue;
+                }
+                collect(&path, sources);
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext == "rs" || ext == "cjs" || ext == "yml" || ext == "yaml")
+            {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    sources.push((path.clone(), text));
+                }
+            }
+        }
+    }
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut sources = Vec::new();
+    collect(&root.join("tests"), &mut sources);
+    collect(&root.join(".github"), &mut sources);
+
+    let ui = root.join("tests/unit/ui");
+    let mut suites = std::fs::read_dir(&ui)
+        .expect("UI suites directory")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "cjs"))
+        .collect::<Vec<_>>();
+    suites.sort();
+    assert!(!suites.is_empty(), "no UI suites were found");
+    for suite in suites {
+        let name = suite.file_name().unwrap().to_str().unwrap();
+        let referenced = sources
+            .iter()
+            .any(|(path, text)| path != &suite && text.contains(name));
+        assert!(
+            referenced,
+            "{name} is not referenced by any runner; wire it into observatory_tools.rs, \
+             release_audit.cjs or a workflow step",
+        );
+    }
+}
