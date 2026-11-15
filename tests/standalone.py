@@ -88,6 +88,8 @@ REQUIRED_FILES = (
     "plugin/.zcode-plugin/plugin.json", "plugin/skills/wcode/SKILL.md",
     "src/lib.rs", "src/main.rs", "tests/source_layout.rs",
     "tests/standalone.py", "tests/unit/architecture/standalone.py",
+    "tests/unit/architecture/standalone_case.py",
+    "tests/unit/architecture/standalone_diagnostics.py",
 )
 GENERATED_FILES = {"Cargo.toml.orig", ".cargo_vcs_info.json"}
 OSS_PACKAGE_SPECS = (
