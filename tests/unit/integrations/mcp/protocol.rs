@@ -418,6 +418,9 @@ fn modern_name_headers_cover_tools_prompts_resources_and_base64_sentinel() {
     );
     assert_eq!(decode_mcp_header_value(&encoded).unwrap(), uri);
     assert!(decode_mcp_header_value("=?base64?not%%%?=").is_err());
+    // The overlapping sentinels satisfy starts_with and ends_with but leave no
+    // body; this used to slice [9..8] and panic.
+    assert!(decode_mcp_header_value("=?base64?=").is_err());
     assert!(decode_mcp_header_value(" padded ").is_err());
     assert!(decode_mcp_header_value("a\tb").is_err());
     assert_eq!(
