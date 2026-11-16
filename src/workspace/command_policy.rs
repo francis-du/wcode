@@ -756,6 +756,9 @@ fn validate_package_command(program: &str, args: &[String], allow_risky_exec: bo
 #[path = "../../tests/unit/workspace/policy_environment.rs"]
 mod environment_tests;
 #[cfg(test)]
+#[path = "../../tests/unit/workspace/policy_git.rs"]
+mod git_tests;
+#[cfg(test)]
 #[path = "../../tests/unit/workspace/policy_polyglot.rs"]
 mod polyglot_tests;
 #[cfg(test)]
@@ -764,6 +767,9 @@ mod relaxed_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/workspace/policy_remote.rs"]
 mod remote_tests;
+#[cfg(test)]
+#[path = "../../tests/unit/workspace/policy_support.rs"]
+mod test_support;
 #[cfg(test)]
 #[path = "../../tests/unit/workspace/policy.rs"]
 mod tests;
