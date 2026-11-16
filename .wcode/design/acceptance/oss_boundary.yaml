@@ -26,6 +26,7 @@ verification:
   - {kind: test, path: tests/unit/verification/contract.rs, symbol: public_snapshot_contract_rejects_workspace_and_plan_mismatch}
   - {kind: test, path: tests/unit/verification/contract.rs, symbol: public_snapshot_contract_rejects_bounded_count_record_and_state_overflow}
   - {kind: test, path: tests/unit/architecture/standalone.py, symbol: SourcePackageSafety}
+  - {kind: test, path: tests/unit/architecture/standalone_diagnostics.py, symbol: DiagnosticsSafety}
   - {kind: test, path: tests/oss_split.rs, symbol: extracted_git_binding_preserves_the_public_wire_shape_and_validation}
   - {kind: test, path: tests/oss_split.rs, symbol: evidence_no_longer_depends_on_the_verification_module_for_git_binding}
   - {kind: test, path: tests/oss_split.rs, symbol: authority_state_root_contract_no_longer_depends_on_store_modules}

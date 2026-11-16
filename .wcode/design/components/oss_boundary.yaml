@@ -33,6 +33,8 @@ implementation:
   - {kind: file, path: tests/oss_split.rs}
   - {kind: file, path: tests/standalone.py}
   - {kind: file, path: tests/unit/architecture/standalone.py}
+  - {kind: file, path: tests/unit/architecture/standalone_case.py}
+  - {kind: file, path: tests/unit/architecture/standalone_diagnostics.py}
   - {kind: file, path: NOTICE}
   - {kind: file, path: .gitattributes}
   - {kind: file, path: .github/workflows/oss.yml}
