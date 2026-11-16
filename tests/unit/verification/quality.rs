@@ -4,6 +4,9 @@ use std::fs;
 #[path = "quality_roots.rs"]
 mod roots;
 
+#[path = "quality_paths.rs"]
+mod paths;
+
 #[test]
 fn registry_represents_every_indexed_language_without_a_fake_support_boolean() {
     let dir = tempfile::tempdir().unwrap();
@@ -507,43 +510,6 @@ fn clang_tidy_with_compile_database_covers_static_and_type_diagnostics() {
     assert!(tidy.declared);
     assert_eq!(tidy.capability, QualityCapability::StaticAnalysis);
     assert!(tidy.covers.contains(&QualityCapability::TypeCheck));
-}
-
-#[test]
-fn option_like_repository_paths_are_refused_as_tool_arguments() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join(".clang-tidy"), "Checks: '*'\n").unwrap();
-    fs::write(dir.path().join("compile_commands.json"), "[]\n").unwrap();
-    fs::write(
-        dir.path().join("-load=evil.c"),
-        "int main() { return 0; }\n",
-    )
-    .unwrap();
-    let workspace = Workspace::new(dir.path(), false, false).unwrap();
-    let signals = RepoSignals::load(&workspace);
-
-    // A file name that starts with `-` would be parsed by the tool as an
-    // option, so clang-tidy could load it as a plugin or use it as its driver.
-    let error = crate::quality_catalog::candidates_for(
-        &workspace,
-        &signals,
-        SemanticLanguage::Cpp,
-        &["-load=evil.c".into()],
-    )
-    .unwrap_err()
-    .to_string();
-    assert!(error.contains("-load=evil.c"), "{error}");
-
-    assert!(
-        crate::quality_catalog::candidates_for(
-            &workspace,
-            &signals,
-            SemanticLanguage::Cpp,
-            &["main.cpp".into()],
-        )
-        .is_ok(),
-        "ordinary file names must still produce candidates"
-    );
 }
 
 #[cfg(unix)]
