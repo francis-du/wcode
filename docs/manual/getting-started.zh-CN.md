@@ -119,7 +119,7 @@ Agent 的 Rust 草稿可以采用下面的集合文件格式，业务行为、�
   responsibilities: [验证会话有效期]
   implementation:
     - kind: file
-      path: src/session.rs
+      path: src/integrations/auth/tokens.rs
 
 # .wcode/design/acceptance.yaml
 - schema_version: 1
@@ -128,11 +128,11 @@ Agent 的 Rust 草稿可以采用下面的集合文件格式，业务行为、�
   statement: 过期会话回归测试拒绝访问。
   verification:
     - kind: test
-      path: tests/session.rs
-      symbol: rejects_expired_session
+      path: tests/unit/integrations/auth.rs
+      symbol: refresh_tokens_rotate_and_preserve_binding
 ```
 
-集合文件使用 YAML 列表；拆到 `design/requirements/`、`design/components/`、`design/acceptance/` 目录时，每个文件是单个对象。ID 必须唯一，引用必须可解析。已发现的 Symbol 可写为组件的 `{kind: symbol, path: src/session.rs, symbol: validate_session}`；只有实际发现对应检查时，Acceptance 才能声明 `{kind: check, id: rust-test}`。映射能解析不代表测试已经运行或通过。
+集合文件使用 YAML 列表；拆到 `design/requirements/`、`design/components/`、`design/acceptance/` 目录时，每个文件是单个对象。ID 必须唯一，引用必须可解析。已发现的 Symbol 可写为组件的 `{kind: symbol, path: src/integrations/auth/tokens.rs, symbol: refresh_access_token}`；只有实际发现对应检查时，Acceptance 才能声明 `{kind: check, id: rust-test}`。映射能解析不代表测试已经运行或通过。
 
 项目 setup 还可能建议 Acceptance Policy 草稿；只有单独的交互 TTY 确认能写草稿，dry-run/JSON 不确认，已有 Policy 字段保持不变。可信激活仍需独立的原生预览与精确操作者批准；基础元数据初始化和安装确认都不会激活 Policy。
 

@@ -217,7 +217,7 @@ Example component mapping:
     - CONSTRAINT-ROTATION
   implementation:
     - kind: symbol
-      path: src/integrations/auth.rs
+      path: src/integrations/auth/tokens.rs
       symbol: refresh_access_token
 ```
 
@@ -230,8 +230,8 @@ Example acceptance criterion:
   statement: A consumed refresh token cannot be exchanged twice.
   verification:
     - kind: test
-      path: src/integrations/auth.rs
-      symbol: tests::refresh_tokens_rotate_and_preserve_binding
+      path: tests/unit/integrations/auth.rs
+      symbol: refresh_tokens_rotate_and_preserve_binding
     - kind: check
       id: rust-test
 ```

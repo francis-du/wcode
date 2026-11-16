@@ -124,7 +124,7 @@ The agent's small Rust draft could use these collection-file shapes. It must rep
   responsibilities: [Validate session lifetime]
   implementation:
     - kind: file
-      path: src/session.rs
+      path: src/integrations/auth/tokens.rs
 
 # .wcode/design/acceptance.yaml
 - schema_version: 1
@@ -133,11 +133,11 @@ The agent's small Rust draft could use these collection-file shapes. It must rep
   statement: The expired-session regression test rejects access.
   verification:
     - kind: test
-      path: tests/session.rs
-      symbol: rejects_expired_session
+      path: tests/unit/integrations/auth.rs
+      symbol: refresh_tokens_rotate_and_preserve_binding
 ```
 
-Collections are YAML lists; a single item under `design/requirements/`, `design/components/` or `design/acceptance/` is one object instead. IDs must be unique and references must resolve. A component can use `{kind: symbol, path: src/session.rs, symbol: validate_session}` for a discovered symbol; Acceptance can use `{kind: check, id: rust-test}` only when that check is actually discovered. A resolvable mapping is not a test run or a Pass.
+Collections are YAML lists; a single item under `design/requirements/`, `design/components/` or `design/acceptance/` is one object instead. IDs must be unique and references must resolve. A component can use `{kind: symbol, path: src/integrations/auth/tokens.rs, symbol: refresh_access_token}` for a discovered symbol; Acceptance can use `{kind: check, id: rust-test}` only when that check is actually discovered. A resolvable mapping is not a test run or a Pass.
 
 Project setup may also suggest an Acceptance Policy draft. Only a separate interactive TTY confirmation can write that draft; dry-run/JSON does not accept it, and existing Policy fields are preserved. Activating Policy is a separate native preview plus exact operator approval flow. Neither metadata initialization nor installation confirmation activates Policy.
 
