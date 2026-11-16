@@ -7,6 +7,11 @@ pub(super) fn validate_gh_command(args: &[String], allow_risky_exec: bool) -> Re
             "-R" | "--repo" | "--hostname" | "--web" | "--editor"
         ) || arg.starts_with("--repo=")
             || arg.starts_with("--hostname=")
+            || arg.starts_with("--web=")
+            || arg.starts_with("--editor=")
+            // pflag also accepts the shorthand with an attached value, so
+            // `-R=owner/repo` and `-Rowner/repo` redirect the repository too.
+            || arg.starts_with("-R")
     }) {
         bail!("gh repository/host redirection and interactive browser/editor modes are blocked; operate on the selected workspace repository");
     }

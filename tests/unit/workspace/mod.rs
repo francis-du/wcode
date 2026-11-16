@@ -483,6 +483,28 @@ fn delete_path_succeeds_without_authorization_by_default() {
     strict.delete_path("obsolete.txt", Some(&sha)).unwrap();
 }
 
+#[test]
+fn delete_path_waits_for_the_file_write_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("locked.txt"), "A\n").unwrap();
+    let workspace = Workspace::new(dir.path(), true, false).unwrap();
+    let sha = workspace.path_info("locked.txt").unwrap().sha256.unwrap();
+    let file = workspace.existing_path("locked.txt").unwrap();
+    let lock = workspace.write_lock_for(&file).unwrap();
+    let held = lock.lock().unwrap();
+
+    let caller = workspace.clone();
+    let deleting = std::thread::spawn(move || caller.delete_path("locked.txt", Some(&sha)));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(
+        dir.path().join("locked.txt").exists(),
+        "delete_path removed the file while another writer held the write lock"
+    );
+    drop(held);
+    deleting.join().unwrap().unwrap();
+    assert!(!dir.path().join("locked.txt").exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn rejects_workspace_root_replaced_at_same_path() {
