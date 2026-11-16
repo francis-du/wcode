@@ -264,7 +264,7 @@ pub(crate) fn registry_from_advanced(
             .get(&language)
             .cloned()
             .unwrap_or_default();
-        let candidates = candidates_for(workspace, &signals, language, &language_files);
+        let candidates = candidates_for(workspace, &signals, language, &language_files)?;
         let providers = candidates
             .iter()
             .map(|candidate| provider_status(workspace, candidate, !language_files.is_empty()))
@@ -344,7 +344,7 @@ pub async fn execute(
         .into_iter()
         .filter(|path| language_for_path(path) == Some(language))
         .collect::<Vec<_>>();
-    let candidate = candidates_for(&scoped_workspace, &signals, language, &language_files)
+    let candidate = candidates_for(&scoped_workspace, &signals, language, &language_files)?
         .into_iter()
         .find(|candidate| candidate.id == local_provider_id)
         .ok_or_else(|| anyhow::anyhow!("quality provider changed while preparing execution"))?;

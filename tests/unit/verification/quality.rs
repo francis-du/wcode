@@ -247,7 +247,8 @@ fn unsafe_workspace_bin_links_do_not_shadow_bare_quality_tools() {
         &signals,
         SemanticLanguage::JavaScript,
         &["app.js".into()],
-    );
+    )
+    .unwrap();
     assert_eq!(
         js.iter()
             .find(|candidate| candidate.id == "eslint")
@@ -261,7 +262,8 @@ fn unsafe_workspace_bin_links_do_not_shadow_bare_quality_tools() {
         &signals,
         SemanticLanguage::Php,
         &["index.php".into()],
-    );
+    )
+    .unwrap();
     assert_eq!(
         php.iter()
             .find(|candidate| candidate.id == "phpstan")
@@ -298,7 +300,8 @@ fn safe_single_link_workspace_quality_tools_remain_preferred() {
         &signals,
         SemanticLanguage::JavaScript,
         &["app.js".into()],
-    );
+    )
+    .unwrap();
     assert_eq!(
         js.iter()
             .find(|candidate| candidate.id == "eslint")
@@ -402,7 +405,8 @@ fn advisory_security_providers_report_external_data_and_real_machine_output() {
         &signals,
         SemanticLanguage::Rust,
         &["src/lib.rs".into()],
-    );
+    )
+    .unwrap();
     let audit = candidates
         .iter()
         .find(|candidate| candidate.id == "cargo-audit")
@@ -494,7 +498,8 @@ fn clang_tidy_with_compile_database_covers_static_and_type_diagnostics() {
         &signals,
         SemanticLanguage::Cpp,
         &["main.cpp".into()],
-    );
+    )
+    .unwrap();
     let tidy = candidates
         .iter()
         .find(|candidate| candidate.id == "clang-tidy")
@@ -502,6 +507,43 @@ fn clang_tidy_with_compile_database_covers_static_and_type_diagnostics() {
     assert!(tidy.declared);
     assert_eq!(tidy.capability, QualityCapability::StaticAnalysis);
     assert!(tidy.covers.contains(&QualityCapability::TypeCheck));
+}
+
+#[test]
+fn option_like_repository_paths_are_refused_as_tool_arguments() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".clang-tidy"), "Checks: '*'\n").unwrap();
+    fs::write(dir.path().join("compile_commands.json"), "[]\n").unwrap();
+    fs::write(
+        dir.path().join("-load=evil.c"),
+        "int main() { return 0; }\n",
+    )
+    .unwrap();
+    let workspace = Workspace::new(dir.path(), false, false).unwrap();
+    let signals = RepoSignals::load(&workspace);
+
+    // A file name that starts with `-` would be parsed by the tool as an
+    // option, so clang-tidy could load it as a plugin or use it as its driver.
+    let error = crate::quality_catalog::candidates_for(
+        &workspace,
+        &signals,
+        SemanticLanguage::Cpp,
+        &["-load=evil.c".into()],
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("-load=evil.c"), "{error}");
+
+    assert!(
+        crate::quality_catalog::candidates_for(
+            &workspace,
+            &signals,
+            SemanticLanguage::Cpp,
+            &["main.cpp".into()],
+        )
+        .is_ok(),
+        "ordinary file names must still produce candidates"
+    );
 }
 
 #[cfg(unix)]
@@ -518,7 +560,8 @@ fn non_executable_java_wrappers_do_not_shadow_system_build_tools() {
         &signals,
         SemanticLanguage::Java,
         &["Main.java".into()],
-    );
+    )
+    .unwrap();
     assert!(candidates
         .iter()
         .filter(|candidate| candidate.id.starts_with("maven-"))
@@ -542,7 +585,8 @@ fn biome_format_and_lint_use_distinct_exact_check_only_commands() {
         &signals,
         SemanticLanguage::JavaScript,
         &["app.js".into()],
-    );
+    )
+    .unwrap();
     let format = candidates
         .iter()
         .find(|candidate| candidate.id == "biome-format")
@@ -589,7 +633,8 @@ fn web_quality_uses_fixed_prettier_vitest_and_jest_commands() {
         &signals,
         SemanticLanguage::TypeScript,
         &["app.ts".into()],
-    );
+    )
+    .unwrap();
     let find = |id: &str| {
         candidates
             .iter()
@@ -702,13 +747,15 @@ fn web_language_plugins_and_biome_opt_ins_prevent_false_css_html_coverage() {
         &signals,
         SemanticLanguage::Css,
         &["style.css".into()],
-    );
+    )
+    .unwrap();
     let html = crate::quality_catalog::candidates_for(
         &workspace,
         &signals,
         SemanticLanguage::Html,
         &["index.html".into()],
-    );
+    )
+    .unwrap();
     let declared = |items: &[QualityCandidate], id: &str| {
         items
             .iter()
@@ -742,13 +789,15 @@ fn web_language_plugins_and_biome_opt_ins_prevent_false_css_html_coverage() {
         &signals,
         SemanticLanguage::Css,
         &["style.css".into()],
-    );
+    )
+    .unwrap();
     let html = crate::quality_catalog::candidates_for(
         &workspace,
         &signals,
         SemanticLanguage::Html,
         &["index.html".into()],
-    );
+    )
+    .unwrap();
     assert!(declared(&css, "eslint"));
     assert!(declared(&css, "biome-format"));
     assert!(declared(&html, "eslint"));
@@ -798,7 +847,8 @@ fn bats_files_provide_a_fixed_bash_test_provider() {
         &signals,
         SemanticLanguage::Bash,
         &["script.sh".into(), "smoke.bats".into()],
-    );
+    )
+    .unwrap();
     let bats = candidates
         .iter()
         .find(|candidate| candidate.id == "bats-test")
@@ -830,7 +880,8 @@ fn php_composer_lock_exposes_fixed_security_audit_provider() {
         &signals,
         SemanticLanguage::Php,
         &["index.php".into()],
-    );
+    )
+    .unwrap();
     let audit = candidates
         .iter()
         .find(|candidate| candidate.id == "composer-audit")

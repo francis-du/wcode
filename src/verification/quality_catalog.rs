@@ -76,8 +76,24 @@ pub(crate) fn candidates_for(
     signals: &RepoSignals,
     language: SemanticLanguage,
     language_files: &[String],
-) -> Vec<QualityCandidate> {
+) -> anyhow::Result<Vec<QualityCandidate>> {
     use QualityCapability::{Format, Lint, Security, StaticAnalysis, Test, TypeCheck};
+    // Every provider below receives this file list as tool arguments. A
+    // repository-controlled name that starts with `-` would be parsed by the
+    // tool as an option, so a file such as `-load=evil.c` or a directory named
+    // `--query-driver=.` could redirect clang-tidy's plugin or driver loading.
+    // Refuse the run rather than hand the tool an argument it will reinterpret.
+    if let Some(offending) = language_files
+        .iter()
+        .take(MAX_COMMAND_FILES)
+        .find(|path| path.starts_with('-'))
+    {
+        anyhow::bail!(
+            "repository path {offending:?} would be parsed as a {} tool option; \
+             rename it so quality checks cannot be redirected",
+            language.as_str()
+        );
+    }
     use QualityProviderSource::{Ecosystem, LanguageNative};
     let mut candidates = Vec::new();
     let files = language_files
@@ -492,7 +508,7 @@ pub(crate) fn candidates_for(
             );
         }
     }
-    candidates
+    Ok(candidates)
 }
 
 fn has_root_extension(workspace: &Workspace, extensions: &[&str]) -> bool {
