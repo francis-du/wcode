@@ -412,7 +412,15 @@ fn decode_mcp_header_value(value: &str) -> Result<String, &'static str> {
     const PREFIX: &str = "=?base64?";
     const SUFFIX: &str = "?=";
     if value.starts_with(PREFIX) && value.ends_with(SUFFIX) {
-        let encoded = &value[PREFIX.len()..value.len() - SUFFIX.len()];
+        // Strip both sentinels from the inside out. A length-based slice would
+        // panic on the overlapping form "=?base64?=", which satisfies both
+        // starts_with and ends_with while leaving no encoded body.
+        let Some(encoded) = value
+            .strip_prefix(PREFIX)
+            .and_then(|body| body.strip_suffix(SUFFIX))
+        else {
+            return Err("invalid Mcp-Name base64 sentinel encoding");
+        };
         let decoded = STANDARD
             .decode(encoded)
             .map_err(|_| "invalid Mcp-Name base64 sentinel encoding")?;
