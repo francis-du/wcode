@@ -188,7 +188,7 @@ pub(crate) struct ChangedRangesSnapshot {
     pub files: BTreeMap<String, FileChangedRanges>,
 }
 
-fn unquote_git_path(raw: &str) -> String {
+pub(crate) fn unquote_git_path(raw: &str) -> String {
     // Git appends a tab after paths that contain spaces in the ---/+++ header.
     let raw = raw.strip_suffix('\t').unwrap_or(raw);
     let Some(inner) = raw
@@ -216,13 +216,16 @@ fn unquote_git_path(raw: &str) -> String {
             Some('\\') => bytes.push(b'\\'),
             Some('"') => bytes.push(b'"'),
             Some(digit @ '0'..='7') => {
-                let mut value = digit.to_digit(8).unwrap() as u8;
+                let mut value = digit.to_digit(8).unwrap();
                 for _ in 0..2 {
                     if let Some(next @ '0'..='7') = chars.peek().copied() {
-                        value = value * 8 + next.to_digit(8).unwrap() as u8;
+                        value = value * 8 + next.to_digit(8).unwrap();
                         chars.next();
                     }
                 }
+                let Ok(value) = u8::try_from(value) else {
+                    return raw.to_owned();
+                };
                 bytes.push(value);
             }
             Some(other) => {

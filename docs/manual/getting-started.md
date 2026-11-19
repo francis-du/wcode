@@ -45,6 +45,11 @@ To save the faster preset for detected agents, preview with
 `wcode setup --performance fast --dry-run`, then run `wcode setup --performance fast`
 and reconnect the agent. Add `--project` to keep the configuration in this repository.
 
+For Kimi Code CLI, run `wcode setup --global` in a terminal and review the
+installation plan. Open a new Kimi session in the repository and check `/mcp`.
+Then ask for a read-only WCode call such as `workspace_info`: a connected server
+can still be absent from the model's callable tool list.
+
 ## 3. Start and connect
 
 For a cloud/web connector or the standalone TUI/WebUI, start the service below.

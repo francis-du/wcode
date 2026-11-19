@@ -79,19 +79,19 @@ try {
     $PathEntries = $env:PATH -split ';'
     Write-Host ""
     if ($PathEntries -contains $InstallDir) {
-        Write-Host "Next, from a repository:"
-        Write-Host "  wcode setup"
-        Write-Host "  wcode"
+        Write-Host "To register local coding agents (including Kimi Code CLI), run and review:"
+        Write-Host "  wcode setup --global"
     }
     else {
         Write-Host "Add this directory to PATH if needed:"
         Write-Host "  $InstallDir"
         Write-Host ""
-        Write-Host "Or use the installed binary directly from a repository:"
-        Write-Host "  & `"$InstallPath`" setup"
-        Write-Host "  & `"$InstallPath`""
+        Write-Host "To register local coding agents (including Kimi Code CLI), run and review:"
+        Write-Host "  & `"$InstallPath`" setup --global"
     }
 
+    Write-Host ""
+    Write-Host "In a new Kimi session, check /mcp, then ask for a read-only wcode tool call."
     & $InstallPath --version
 }
 finally {

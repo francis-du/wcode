@@ -44,6 +44,10 @@ Metadata，所以用户项目里不需要存在 `plugin/` 目录。需要预览�
 预览，再运行 `wcode setup --performance fast`，最后重新连接智能体。
 加上 `--project` 可把配置限制在当前仓库。
 
+使用 Kimi Code CLI 时，在终端运行 `wcode setup --global` 并确认安装计划。
+然后从仓库目录新开 Kimi 会话，先用 `/mcp` 查看连接状态，再请模型调用一个只读
+WCode 工具（例如 `workspace_info`）。显示已连接不代表工具已经提供给模型。
+
 ## 3. 启动并连接
 
 云端 / 网页连接器，或需要独立 TUI / WebUI 时，运行下面的服务。

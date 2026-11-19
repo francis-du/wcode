@@ -3,6 +3,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 
@@ -21,8 +22,14 @@ pub(crate) struct PlannedFile {
     pub target: String,
     pub method: String,
     pub outcome: FileOutcome,
+    pub launch_command: Option<String>,
     content: Option<String>,
     expected_sha256: Option<String>,
+}
+
+enum ServerMerge {
+    Write(Value),
+    Preserve(&'static str),
 }
 
 pub(crate) fn plan_json(
@@ -31,8 +38,52 @@ pub(crate) fn plan_json(
     container: &str,
     server: &Value,
 ) -> Result<PlannedFile> {
+    plan_json_with(workspace, target, container, false, |_| {
+        Ok(ServerMerge::Write(server.clone()))
+    })
+}
+
+pub(crate) fn plan_kimi_json(
+    workspace: &Workspace,
+    target: &str,
+    server: &Value,
+) -> Result<PlannedFile> {
+    plan_json_with(workspace, target, "mcpServers", true, |existing| {
+        let Some(existing) = existing else {
+            return Ok(ServerMerge::Write(server.clone()));
+        };
+        let entry = existing
+            .as_object()
+            .ok_or_else(|| anyhow!("{target} mcpServers.wcode must be an object"))?;
+        if entry.get("enabled") == Some(&Value::Bool(false)) {
+            return Ok(ServerMerge::Preserve(
+                "WCode is disabled in Kimi; enable it explicitly via /mcp-config if desired",
+            ));
+        }
+        if entry.contains_key("url") {
+            return Ok(ServerMerge::Preserve(
+                "WCode points to a remote server in Kimi; review it via /mcp-config before switching to stdio",
+            ));
+        }
+        let mut entry = entry.clone();
+        for key in ["command", "args"] {
+            entry.insert(key.to_owned(), server[key].clone());
+        }
+        Ok(ServerMerge::Write(Value::Object(entry)))
+    })
+}
+
+fn plan_json_with(
+    workspace: &Workspace,
+    target: &str,
+    container: &str,
+    allow_empty: bool,
+    merge_server: impl FnOnce(Option<&Value>) -> Result<ServerMerge>,
+) -> Result<PlannedFile> {
     let existing = read_existing(workspace, target)?;
-    let mut root = match existing.as_ref() {
+    let mut root = match existing.as_ref().filter(|(content, _)| {
+        !allow_empty || !content.trim_matches([' ', '\t', '\r', '\n']).is_empty()
+    }) {
         Some((content, _)) => serde_json::from_str::<Value>(content)
             .with_context(|| format!("{target} is not valid JSON"))?,
         None => Value::Object(Map::new()),
@@ -51,10 +102,20 @@ pub(crate) fn plan_json(
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
         .ok_or_else(|| anyhow!("{target} field {container} must be a JSON object"))?;
-    if servers.get("wcode") == Some(server) {
+    let current = servers.get("wcode");
+    let server = match merge_server(current)? {
+        ServerMerge::Write(server) => server,
+        ServerMerge::Preserve(reason) => {
+            return Ok(PlannedFile {
+                outcome: FileOutcome::ManualConflict,
+                ..unchanged(target, reason.to_owned())
+            });
+        }
+    };
+    if current == Some(&server) {
         return Ok(unchanged(target, format!("merge {container}.wcode")));
     }
-    servers.insert("wcode".to_owned(), server.clone());
+    servers.insert("wcode".to_owned(), server);
     let mut content = serde_json::to_string_pretty(&root)?;
     content.push('\n');
     Ok(changed(
@@ -193,6 +254,7 @@ pub(crate) fn plan_canonical_text(
             target: target.to_owned(),
             method: "install canonical portable skill".to_owned(),
             outcome: FileOutcome::Create,
+            launch_command: None,
             content: Some(content.to_owned()),
             expected_sha256: None,
         }),
@@ -204,6 +266,7 @@ pub(crate) fn plan_canonical_text(
             target: target.to_owned(),
             method: "preserve locally modified skill".to_owned(),
             outcome: FileOutcome::ManualConflict,
+            launch_command: None,
             content: None,
             expected_sha256: None,
         }),
@@ -230,19 +293,21 @@ pub(crate) fn apply(workspace: &Workspace, plan: &PlannedFile) -> Result<()> {
 }
 
 fn read_existing(workspace: &Workspace, target: &str) -> Result<Option<(String, String)>> {
-    let path = workspace.root().join(target);
-    let metadata = match fs::symlink_metadata(&path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
+    let Some(path) = workspace.optional_merge_file(target)? else {
+        return Ok(None);
     };
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        bail!("{target} must be a regular non-symlink file");
-    }
-    if metadata.len() > MAX_CONFIG_BYTES {
+    let reader = fs::File::open(path).with_context(|| format!("cannot open {target}"))?;
+    if reader.metadata()?.len() > MAX_CONFIG_BYTES {
         bail!("{target} exceeds the 1 MiB safe configuration merge bound");
     }
-    let content = fs::read_to_string(&path).with_context(|| format!("cannot read {target}"))?;
+    let mut content = String::new();
+    reader
+        .take(MAX_CONFIG_BYTES + 1)
+        .read_to_string(&mut content)
+        .with_context(|| format!("cannot read {target}"))?;
+    if content.len() as u64 > MAX_CONFIG_BYTES {
+        bail!("{target} exceeds the 1 MiB safe configuration merge bound");
+    }
     let sha = format!("{:x}", Sha256::digest(content.as_bytes()));
     Ok(Some((content, sha)))
 }
@@ -262,6 +327,7 @@ fn changed(
         } else {
             FileOutcome::Create
         },
+        launch_command: None,
         content: Some(content),
         expected_sha256,
     }
@@ -272,6 +338,7 @@ fn unchanged(target: &str, method: String) -> PlannedFile {
         target: target.to_owned(),
         method,
         outcome: FileOutcome::Already,
+        launch_command: None,
         content: None,
         expected_sha256: None,
     }

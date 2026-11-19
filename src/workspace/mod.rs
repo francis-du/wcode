@@ -657,7 +657,7 @@ impl Workspace {
 }
 
 mod change_view;
-pub(crate) use change_view::ChangedRangesSnapshot;
+pub(crate) use change_view::{unquote_git_path, ChangedRangesSnapshot};
 pub use change_view::{ChangeLayer, ChangeLineRange};
 mod historical_source;
 pub(crate) use historical_source::{historical_source_error_code, MAX_HISTORICAL_REVISIONS};

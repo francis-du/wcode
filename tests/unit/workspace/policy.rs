@@ -34,6 +34,8 @@ fn inspection_probe_routing_is_exact_and_never_promotes_mutations_or_helpers() {
     for command in [
         vec!["status", "--short", "--untracked-files=all"],
         vec!["status", "--short", "--branch"],
+        vec!["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        vec!["rev-parse", "HEAD"],
         vec!["diff", "--check"],
         vec!["diff", "--cached", "--numstat"],
         vec!["branch", "--show-current"],
@@ -43,6 +45,8 @@ fn inspection_probe_routing_is_exact_and_never_promotes_mutations_or_helpers() {
     for command in [
         vec!["commit", "-m", "status"],
         vec!["status", "--ignored"],
+        vec!["status", "--porcelain=v1", "-z", "--ignored"],
+        vec!["rev-parse", "--git-path", "HEAD"],
         vec!["diff", "--numstat", "--ext-diff"],
         vec!["diff", "--check", "--output=result.txt"],
         vec!["log", "--all"],

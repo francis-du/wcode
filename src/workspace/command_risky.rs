@@ -31,13 +31,17 @@ pub(in crate::workspace) fn is_inspection_probe(program: &str, args: &[String]) 
                 | ("branch", "--show-current")
                 | (
                     "rev-parse",
-                    "--show-toplevel" | "--show-prefix" | "--is-inside-work-tree"
+                    "--show-toplevel" | "--show-prefix" | "--is-inside-work-tree" | "HEAD"
                 )
         ),
         [first, second, third] => matches!(
             (first.as_str(), second.as_str(), third.as_str()),
             ("status", "--short", "--branch" | "--untracked-files=all")
                 | ("diff", "--cached", "--check" | "--numstat")
+        ),
+        [_, _, _, _] => args_equal(
+            args,
+            &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
         ),
         _ => false,
     }

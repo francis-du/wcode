@@ -130,12 +130,16 @@ pub(crate) const HOSTS: &[AgentHost] = &[
         &[".cline"],
         "Cline keeps MCP settings in application state; use its MCP settings screen or CLI.",
     ),
-    manual(
+    host(
         "kimi-code",
         "Kimi Code CLI",
         &["kimi", "kimi-code"],
-        &[".kimi"],
-        "No stable repository-local MCP schema was verified; use Kimi's current MCP UI or CLI.",
+        &[".kimi-code"],
+        &[],
+        AdapterKind::JsonMcpServers {
+            path: ".kimi-code/mcp.json",
+        },
+        "Uses Kimi's mcp.json. Check /mcp in a new session; project setup requires workspace trust.",
     ),
     manual(
         "roo-code",

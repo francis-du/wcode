@@ -169,10 +169,20 @@ Safe automatic targets are `.mcp.json`, `.codex/config.toml`,
 must have detection evidence before wcode creates its file. OpenCode V1 and V2
 containers are detected before the `wcode` entry is merged.
 
+For Kimi Code CLI, `wcode setup --global` merges `mcpServers.wcode` into
+`~/.kimi-code/mcp.json` (or `$KIMI_CODE_HOME/mcp.json` if it is inside the setup
+home). Global setup records the installed WCode executable's absolute path
+so Kimi can start it without relying on its `PATH`. `wcode setup --project`
+uses `.kimi-code/mcp.json` with the portable `wcode mcp-stdio` command and
+requires Kimi workspace trust. Setup preserves existing Kimi server options
+and reports disabled or remote WCode entries as manual without rewriting them. An empty
+Kimi configuration can be initialized; malformed non-empty JSON is left intact.
+Open a new Kimi session, check `/mcp`, then request a read-only WCode tool call
+to verify that the model can use it. For a config outside the setup home,
+use Kimi's `/mcp-config`.
+
 ## 5. Manual hosts
 
-- **Kimi Code CLI:** add `wcode mcp-stdio` through the current MCP UI or CLI.
-  The Host working directory selects the Workspace; wcode does not assume a repository schema.
 - **Cline:** use its MCP settings screen or CLI. Current MCP state is
   application-level, so the repository installer leaves it alone.
 - **Roo Code and Windsurf:** use the workspace MCP settings page. Extension

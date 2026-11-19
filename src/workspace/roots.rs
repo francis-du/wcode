@@ -591,6 +591,13 @@ impl Workspace {
             .join("/"))
     }
 
+    pub(crate) fn has_git_root_marker(&self) -> bool {
+        fs::symlink_metadata(self.root.join(".git")).is_ok_and(|metadata| {
+            let kind = metadata.file_type();
+            kind.is_dir() || kind.is_file()
+        })
+    }
+
     pub(crate) fn validate_relative(path: &str) -> Result<PathBuf> {
         if path.contains('\0') || path.contains(['\n', '\r']) {
             bail!("path contains forbidden control characters");
@@ -704,6 +711,25 @@ impl Workspace {
         }
         reject_authority_path(&resolved, false)?;
         Ok(resolved)
+    }
+
+    pub(crate) fn optional_merge_file(&self, path: &str) -> Result<Option<PathBuf>> {
+        self.ensure_root_intact()?;
+        let relative = Self::validate_relative(path)?;
+        self.ensure_no_symlink_components_allow_missing(&relative)?;
+        let target = self.root.join(&relative);
+        match fs::symlink_metadata(&target) {
+            Ok(_) => {
+                let resolved = self.existing_path(path)?;
+                ensure_single_link_file(&resolved)?;
+                Ok(Some(resolved))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                reject_authority_path(&target, true)?;
+                Ok(None)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub(super) fn new_path(&self, path: &str) -> Result<PathBuf> {

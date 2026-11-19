@@ -125,12 +125,13 @@ printf '\nInstalled wcode to %s\n' "$install_path"
 
 case ":${PATH:-}:" in
   *":$INSTALL_DIR:"*)
-    printf '\nNext, from a repository:\n  wcode setup\n  wcode\n'
+    printf '\nTo register local coding agents (including Kimi Code CLI), run and review:\n  wcode setup --global\n'
     ;;
   *)
     printf '\nAdd this directory to PATH if needed:\n  %s\n' "$INSTALL_DIR"
-    printf '\nOr use the installed binary directly from a repository:\n  %s setup\n  %s\n' "$install_path" "$install_path"
+    printf '\nTo register local coding agents (including Kimi Code CLI), run and review:\n  "%s" setup --global\n' "$install_path"
     ;;
 esac
 
+printf '\nIn a new Kimi session, check /mcp, then ask for a read-only wcode tool call.\n'
 "$install_path" --version

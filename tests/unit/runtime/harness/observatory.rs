@@ -88,12 +88,10 @@ async fn observatory_revision_signal_detects_repeated_edits_to_same_modified_fil
     assert!(git(&["init", "-q"]).success());
     assert!(git(&["config", "user.email", "wcode@example.test"]).success());
     assert!(git(&["config", "user.name", "wcode test"]).success());
+    assert!(git(&["config", "core.quotePath", "true"]).success());
     fs::create_dir_all(root.path().join("src")).unwrap();
-    fs::write(
-        root.path().join("src/lib.rs"),
-        "pub fn value() -> i32 { 1 }\n",
-    )
-    .unwrap();
+    let source = root.path().join("src/项目.rs");
+    fs::write(&source, "pub fn value() -> i32 { 1 }\n").unwrap();
     assert!(git(&["add", "."]).success());
     assert!(git(&["-c", "commit.gpgsign=false", "commit", "-qm", "initial"]).success());
 
@@ -105,23 +103,14 @@ async fn observatory_revision_signal_detects_repeated_edits_to_same_modified_fil
         .unwrap();
     assert_eq!(clean.changed_files, 0);
 
-    fs::write(
-        root.path().join("src/lib.rs"),
-        "pub fn value() -> i32 { 2 }\n",
-    )
-    .unwrap();
+    fs::write(&source, "pub fn value() -> i32 { 20 }\n").unwrap();
     let first = harness
         .observatory_revision_signal(&workspace)
         .await
         .unwrap();
     assert_eq!(first.changed_files, 1);
 
-    std::thread::sleep(std::time::Duration::from_millis(2));
-    fs::write(
-        root.path().join("src/lib.rs"),
-        "pub fn value() -> i32 { 3 }\n",
-    )
-    .unwrap();
+    fs::write(&source, "pub fn value() -> i32 { 300 }\n").unwrap();
     let second = harness
         .observatory_revision_signal(&workspace)
         .await

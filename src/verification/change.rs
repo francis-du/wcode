@@ -153,6 +153,13 @@ pub(crate) fn parse_raw_changes(output: &str, limit: usize) -> anyhow::Result<Ve
     Ok(changes)
 }
 
+pub(crate) fn is_git_status_column(byte: u8) -> bool {
+    matches!(
+        byte,
+        b' ' | b'?' | b'!' | b'M' | b'A' | b'D' | b'R' | b'C' | b'U' | b'T'
+    )
+}
+
 /// Porcelain v1 -z reports the destination first, followed by the source for
 /// rename/copy records. Names are repository relative even in a sub-Workspace.
 pub(crate) fn parse_status_changes(
@@ -171,12 +178,7 @@ pub(crate) fn parse_status_changes(
         let bytes = record.as_bytes();
         if bytes.len() < 4
             || bytes[2] != b' '
-            || !bytes[..2].iter().all(|byte| {
-                matches!(
-                    byte,
-                    b' ' | b'?' | b'!' | b'M' | b'A' | b'D' | b'R' | b'C' | b'U' | b'T'
-                )
-            })
+            || !bytes[..2].iter().copied().all(is_git_status_column)
         {
             anyhow::bail!("invalid Git status record");
         }

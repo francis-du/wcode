@@ -120,6 +120,9 @@ pub(crate) fn plan_configured_install(
             }
         } else {
             match &host.adapter {
+                AdapterKind::JsonMcpServers { path } if host.id == "kimi-code" => {
+                    merge::plan_kimi_json(workspace, path, &server)
+                }
                 AdapterKind::JsonMcpServers { path } => {
                     merge::plan_json(workspace, path, "mcpServers", &server)
                 }
@@ -140,12 +143,16 @@ pub(crate) fn plan_configured_install(
                 let target = plan.target.clone();
                 let method = plan.method.clone();
                 let disposition = disposition(plan.outcome);
+                let mut action = base();
+                if disposition == AgentInstallDisposition::Manual {
+                    action.guidance = format!("{}. {}", method, action.guidance);
+                }
                 writes.entry(target.clone()).or_insert(plan);
                 actions.push(AgentInstallAction {
                     target: Some(target),
                     method,
                     disposition,
-                    ..base()
+                    ..action
                 });
             }
             Err(error) => actions.push(AgentInstallAction {
@@ -189,6 +196,11 @@ pub(crate) fn apply_install(
         .actions
         .into_iter()
         .map(|action| {
+            let launch_command = action
+                .target
+                .as_ref()
+                .and_then(|target| plan.writes.get(target))
+                .and_then(|write| write.launch_command.clone());
             let write_error = action
                 .target
                 .as_ref()
@@ -205,6 +217,7 @@ pub(crate) fn apply_install(
                 evidence: action.evidence,
                 target: action.target,
                 method: action.method,
+                launch_command,
                 status,
                 detail: write_error.cloned().unwrap_or(action.guidance),
             }
@@ -232,12 +245,61 @@ fn global_plan(
         "gemini-cli" => merge::plan_json(workspace, ".gemini/settings.json", "mcpServers", server),
         "qwen-code" => merge::plan_json(workspace, ".qwen/settings.json", "mcpServers", server),
         "kiro" => merge::plan_json(workspace, ".kiro/settings/mcp.json", "mcpServers", server),
+        "kimi-code" => {
+            let config_home = env::var_os("KIMI_CODE_HOME").map(PathBuf::from);
+            plan_kimi_global(workspace, config_home.as_deref(), server)
+        }
         "opencode" => {
             merge::plan_opencode(workspace, ".config/opencode/opencode.json", launch_args)
         }
         _ => return None,
     };
     Some(plan)
+}
+
+fn plan_kimi_global(
+    workspace: &Workspace,
+    config_home: Option<&Path>,
+    server: &serde_json::Value,
+) -> anyhow::Result<PlannedFile> {
+    let target = kimi_global_config(workspace.root(), config_home)?;
+    let executable = env::current_exe()?.canonicalize()?;
+    let mut server = server.clone();
+    server["command"] = serde_json::Value::String(
+        executable
+            .into_os_string()
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("WCode executable path must be valid UTF-8 for Kimi"))?,
+    );
+    let mut plan = merge::plan_kimi_json(workspace, &target, &server)?;
+    if plan.outcome != FileOutcome::ManualConflict {
+        plan.launch_command = server["command"].as_str().map(str::to_owned);
+    }
+    Ok(plan)
+}
+
+fn kimi_global_config(home: &Path, config_home: Option<&Path>) -> anyhow::Result<String> {
+    let Some(config_home) = config_home.filter(|path| !path.as_os_str().is_empty()) else {
+        return Ok(".kimi-code/mcp.json".to_owned());
+    };
+    let relative = config_home
+        .strip_prefix(home)
+        .ok()
+        .filter(|relative| {
+            relative
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)))
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "KIMI_CODE_HOME must be inside the setup home; use Kimi's /mcp-config otherwise"
+            )
+        })?;
+    relative
+        .join("mcp.json")
+        .into_os_string()
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("KIMI_CODE_HOME must be valid UTF-8"))
 }
 
 struct SkillTarget {
@@ -410,6 +472,15 @@ fn detection_evidence(root: &Path, host: &AgentHost) -> Vec<String> {
         if path.exists() {
             evidence.push(format!("project path {}", path.display()));
             break;
+        }
+    }
+    if host.id == "kimi-code" && evidence.is_empty() {
+        let config_home = env::var_os("KIMI_CODE_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .filter(|path| kimi_global_config(root, Some(path)).is_ok() && path.is_dir());
+        if let Some(config_home) = config_home {
+            evidence.push(format!("KIMI_CODE_HOME {}", config_home.display()));
         }
     }
     #[cfg(target_os = "macos")]

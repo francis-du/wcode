@@ -52,6 +52,8 @@ pub(crate) struct AgentInstallResult {
     pub evidence: Vec<String>,
     pub target: Option<String>,
     pub method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_command: Option<String>,
     pub status: AgentInstallStatus,
     pub detail: String,
 }
@@ -165,6 +167,9 @@ pub(crate) fn print_human(summary: &AgentInstallSummary) {
         "  └──────────┴──────────────────────────────┴──────────────────────────────────────┘"
     );
     for result in visible {
+        if let Some(command) = &result.launch_command {
+            println!("  {} launch: {command:?} {launch}", result.host);
+        }
         if matches!(
             result.status,
             AgentInstallStatus::Manual | AgentInstallStatus::Failed
