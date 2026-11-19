@@ -70,7 +70,7 @@ pub(super) async fn run_intelligence_cli(
         let evidence = harness.evidence_status(&workspace_id, &workspace, None, 100)?;
         let reconciliation = harness.reconciliation_history(&workspace, 20)?;
         let verification = harness.verification_history(&workspace_id, &workspace, 20, None)?;
-        let risk = if workspace.exec_enabled() && workspace.root().join(".git").is_dir() {
+        let risk = if workspace.exec_enabled() && workspace.has_git_root_marker() {
             match harness
                 .review_changes(workspace_id.clone(), &workspace, 30, monitor)
                 .await

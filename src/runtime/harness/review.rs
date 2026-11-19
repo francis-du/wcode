@@ -4,8 +4,8 @@ use crate::graph::{
     starts_with_ascii_case_insensitive,
 };
 use crate::verification::change::{
-    parse_raw_changes, parse_status_changes, ExecutionGitBinding, GitChangeSnapshot,
-    GitChangeTarget,
+    is_git_status_column, parse_raw_changes, parse_status_changes, ExecutionGitBinding,
+    GitChangeSnapshot, GitChangeTarget,
 };
 
 #[path = "review_diagnostic.rs"]
@@ -73,7 +73,7 @@ impl ToolHarness {
     }
 }
 
-fn complete_git_output(result: CommandResult) -> Result<String> {
+pub(super) fn complete_git_output(result: CommandResult) -> Result<String> {
     if !result.success
         || result.timed_out
         || result.output_incomplete
@@ -91,20 +91,45 @@ fn complete_git_output(result: CommandResult) -> Result<String> {
     Ok(output)
 }
 
+pub(super) fn porcelain_status_args() -> [String; 4] {
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"].map(str::to_owned)
+}
+
+pub(super) fn porcelain_status_entries(
+    output: &str,
+) -> Result<BTreeMap<String, ChangedFileBuilder>> {
+    let mut files = BTreeMap::new();
+    for change in parse_status_changes(output, MAX_REVIEW_FILES)? {
+        let Some(path) = change.new_path.or(change.old_path) else {
+            continue;
+        };
+        let bytes = change.status.as_bytes();
+        merge_status_entry(&mut files, path, bytes[0] as char, bytes[1] as char);
+    }
+    Ok(files)
+}
+
 impl ToolHarness {
     pub async fn worktree_status_snapshot(&self, workspace: &Workspace) -> Result<Value> {
-        if !workspace.exec_enabled() || !workspace.root().join(".git").is_dir() {
+        if !workspace.exec_enabled() || !workspace.has_git_root_marker() {
             return Ok(json!({"available": false}));
         }
-        let args = ["status", "--short", "--untracked-files=all"]
-            .into_iter()
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        let result = workspace.run_command("git", &args, ".", 10).await?;
+        let result = workspace
+            .run_command("git", &porcelain_status_args(), ".", 10)
+            .await?;
         if !result.success {
             return Ok(json!({"available": false, "reason": "git_status_failed"}));
         }
-        let (changed, parsed_truncated) = parse_git_status(&result.stdout);
+        let truncated = result.truncated;
+        let Ok(changed) =
+            complete_git_output(result).and_then(|output| porcelain_status_entries(&output))
+        else {
+            return Ok(json!({
+                "available": false,
+                "reason": "git_status_incomplete_or_invalid",
+                "truncated": truncated,
+            }));
+        };
         let files = changed
             .into_iter()
             .map(|(path, file)| {
@@ -120,7 +145,7 @@ impl ToolHarness {
         Ok(json!({
             "available": true,
             "files": files,
-            "truncated": parsed_truncated || result.truncated,
+            "truncated": false,
         }))
     }
 }
@@ -262,34 +287,74 @@ pub(super) fn parse_git_status(output: &str) -> (BTreeMap<String, ChangedFileBui
             break;
         }
         let bytes = line.as_bytes();
-        if bytes.len() < 3 {
+        if bytes.len() < 4
+            || bytes[2] != b' '
+            || !is_git_status_column(bytes[0])
+            || !(is_git_status_column(bytes[1]) || bytes[1] == b'm')
+        {
+            truncated = true;
             continue;
         }
         let x = bytes[0] as char;
         let y = bytes[1] as char;
-        let path = normalize_status_path(&line[3..]);
+        let rename_or_copy = matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C');
+        let path = normalize_status_path(&line[3..], rename_or_copy);
         if path.is_empty() {
+            truncated = true;
             continue;
         }
-        let untracked = x == '?' && y == '?';
-        let entry = files
-            .entry(path)
-            .or_insert_with(ChangedFileBuilder::default);
-        entry.status = git_status_name(x, y).to_owned();
-        entry.untracked |= untracked;
-        entry.staged |= !untracked && !matches!(x, ' ' | '?' | '!');
-        entry.unstaged |= !untracked && !matches!(y, ' ' | '?' | '!');
+        merge_status_entry(&mut files, path, x, y);
     }
     (files, truncated)
 }
 
-fn normalize_status_path(raw: &str) -> String {
-    let path = raw
-        .trim()
-        .rsplit_once(" -> ")
-        .map(|(_, destination)| destination)
-        .unwrap_or_else(|| raw.trim());
-    path.trim_matches('"').to_owned()
+fn merge_status_entry(
+    files: &mut BTreeMap<String, ChangedFileBuilder>,
+    path: String,
+    x: char,
+    y: char,
+) {
+    let untracked = x == '?' && y == '?';
+    let entry = files.entry(path).or_default();
+    entry.status = git_status_name(x, y).to_owned();
+    entry.untracked |= untracked;
+    entry.staged |= !untracked && !matches!(x, ' ' | '?' | '!');
+    entry.unstaged |= !untracked && !matches!(y, ' ' | '?' | '!');
+}
+
+fn normalize_status_path(raw: &str, rename_or_copy: bool) -> String {
+    let raw = raw.trim();
+    let path = if rename_or_copy {
+        status_rename_destination(raw).unwrap_or(raw)
+    } else {
+        raw
+    };
+    decode_review_path(path)
+}
+
+fn decode_review_path(path: &str) -> String {
+    let decoded = crate::workspace::unquote_git_path(path);
+    if decoded.contains('\u{fffd}') || decoded.chars().any(char::is_control) {
+        return path.to_owned();
+    }
+    decoded
+}
+
+fn status_rename_destination(raw: &str) -> Option<&str> {
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, byte) in raw.bytes().enumerate() {
+        if escaped {
+            escaped = false;
+        } else if quoted && byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            quoted = !quoted;
+        } else if !quoted && byte == b' ' && raw[index..].starts_with(" -> ") {
+            return Some(&raw[index + 4..]);
+        }
+    }
+    None
 }
 
 fn git_status_name(x: char, y: char) -> &'static str {
@@ -323,51 +388,62 @@ pub(super) fn merge_numstat(
             break;
         }
         let mut fields = line.splitn(3, '\t');
-        let Some(additions) = fields.next() else {
+        let (Some(additions), Some(deletions), Some(raw_path)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            truncated = true;
             continue;
         };
-        let Some(deletions) = fields.next() else {
+        let counts = if additions == "-" && deletions == "-" {
+            None
+        } else if let (Ok(additions), Ok(deletions)) =
+            (additions.parse::<u64>(), deletions.parse::<u64>())
+        {
+            Some((additions, deletions))
+        } else {
+            truncated = true;
             continue;
         };
-        let Some(raw_path) = fields.next() else {
-            continue;
+        let literal = decode_review_path(raw_path.trim());
+        let path = if files.contains_key(&literal) {
+            literal
+        } else {
+            normalize_numstat_path(raw_path)
         };
-        let path = normalize_numstat_path(raw_path);
         if path.is_empty() {
+            truncated = true;
             continue;
         }
         let entry = files.entry(path).or_insert_with(|| ChangedFileBuilder {
             status: "modified".to_owned(),
             ..ChangedFileBuilder::default()
         });
-        if additions == "-" || deletions == "-" {
-            entry.binary = true;
-            entry.has_numstat = true;
-            continue;
-        }
-        if let (Ok(additions), Ok(deletions)) = (additions.parse::<u64>(), deletions.parse::<u64>())
-        {
+        entry.has_numstat = true;
+        if let Some((additions, deletions)) = counts {
             entry.additions = entry.additions.saturating_add(additions);
             entry.deletions = entry.deletions.saturating_add(deletions);
-            entry.has_numstat = true;
+        } else {
+            entry.binary = true;
         }
     }
     truncated
 }
 
 pub(super) fn normalize_numstat_path(raw: &str) -> String {
-    let raw = raw.trim().trim_matches('"');
+    let raw = raw.trim();
     if let (Some(open), Some(close)) = (raw.find('{'), raw.rfind('}')) {
         if open < close {
             let inside = &raw[open + 1..close];
             if let Some((_, destination)) = inside.rsplit_once(" => ") {
-                return format!("{}{}{}", &raw[..open], destination, &raw[close + 1..]);
+                let path = format!("{}{}{}", &raw[..open], destination, &raw[close + 1..]);
+                return decode_review_path(&path);
             }
         }
     }
-    raw.rsplit_once(" => ")
-        .map(|(_, destination)| destination.to_owned())
-        .unwrap_or_else(|| raw.to_owned())
+    decode_review_path(
+        raw.rsplit_once(" => ")
+            .map_or(raw, |(_, destination)| destination),
+    )
 }
 
 pub(super) fn append_diff_check_findings(

@@ -11,6 +11,7 @@ permalink: /docs/releases/
 
 ## Recent
 
+- [v0.9.16 — Kimi setup and accurate Git worktree review](v0.9.16/)
 - [v0.9.15 — Observatory navigation and bounded file tree](v0.9.15/)
 - [v0.9.14 — Convergence observability and context efficiency](v0.9.14/)
 - [v0.9.13 — Plan association and steering recovery](v0.9.13/)

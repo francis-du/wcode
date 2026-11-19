@@ -268,7 +268,7 @@ pub(in crate::mcp) async fn intelligence_web_status(
         web_status::snapshot(&harness, &workspace_id_for_read, &workspace_for_read)
     });
     let review_task = async {
-        if workspace.exec_enabled() && workspace.root().join(".git").is_dir() {
+        if workspace.exec_enabled() && workspace.has_git_root_marker() {
             state
                 .harness
                 .review_changes(workspace_id.clone(), &workspace, 30, &state.monitor)

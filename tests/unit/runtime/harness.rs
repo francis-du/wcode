@@ -434,8 +434,10 @@ fn change_review_parsers_classify_status_metrics_and_risk() {
 
     assert!(!merge_numstat(
         &mut files,
-        "12\t3\tsrc/auth.rs\n2\t0\ttests/auth_test.rs\n-\t-\tassets/logo.png\n",
+        "12\t3\tsrc/auth.rs\n2\t0\ttests/auth_test.rs\n-\t-\tassets/logo.png\n1\t2\t\"src/\\351\\241\\271\\347\\233\\256.rs\"\n",
     ));
+    assert_eq!(files["src/项目.rs"].additions, 1);
+    assert_eq!(files["src/项目.rs"].deletions, 2);
     assert_eq!(files["src/auth.rs"].additions, 12);
     assert_eq!(files["src/auth.rs"].deletions, 3);
     assert!(files["assets/logo.png"].binary);

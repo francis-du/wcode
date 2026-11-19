@@ -78,7 +78,7 @@ impl ToolHarness {
         &self,
         workspace: &Workspace,
     ) -> Result<ObservatoryRevisionSignal> {
-        if !workspace.exec_enabled() || !workspace.root().join(".git").exists() {
+        if !workspace.exec_enabled() || !workspace.has_git_root_marker() {
             let workspace = workspace.clone();
             return tokio::task::spawn_blocking(move || {
                 let (files, truncated) =
@@ -103,10 +103,7 @@ impl ToolHarness {
             })?;
         }
 
-        let status_args = ["status", "--short", "--untracked-files=all"]
-            .into_iter()
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
+        let status_args = porcelain_status_args();
         let head_args = ["rev-parse", "HEAD"]
             .into_iter()
             .map(str::to_owned)
@@ -130,12 +127,24 @@ impl ToolHarness {
             );
         }
 
-        let (changed, parsed_truncated) = parse_git_status(&status.stdout);
-        let truncated = parsed_truncated || status.truncated || head.truncated;
+        let truncated = status.truncated || head.truncated;
+        let incomplete = || ObservatoryRevisionSignal {
+            fingerprint: None,
+            changed_files: 0,
+            truncated,
+            full_refresh_required: true,
+        };
+        let (Ok(status), Ok(head)) = (complete_git_output(status), complete_git_output(head))
+        else {
+            return Ok(incomplete());
+        };
+        let Ok(changed) = porcelain_status_entries(&status) else {
+            return Ok(incomplete());
+        };
         let mut hasher = Sha256::new();
-        hasher.update(head.stdout.trim().as_bytes());
+        hasher.update(head.trim().as_bytes());
         hasher.update([0]);
-        hasher.update(status.stdout.as_bytes());
+        hasher.update(status.as_bytes());
         for path in changed.keys() {
             hasher.update([0]);
             hasher.update(path.as_bytes());
@@ -270,6 +279,7 @@ impl ToolHarness {
         }
 
         let (mut changed, mut truncated) = parse_git_status(&status_result.stdout);
+        truncated |= status_result.truncated;
         for probe_id in ["unstaged-numstat", "staged-numstat"] {
             if let Some(result) = outputs
                 .iter()
@@ -277,7 +287,7 @@ impl ToolHarness {
                 .and_then(|output| output.result.as_ref())
             {
                 if result.success {
-                    truncated |= merge_numstat(&mut changed, &result.stdout);
+                    truncated |= result.truncated | merge_numstat(&mut changed, &result.stdout);
                 }
             }
         }
@@ -311,7 +321,7 @@ impl ToolHarness {
         let mut deleted_test_paths = Vec::new();
         let mut source_changed = false;
         let mut tests_changed = false;
-        let mut docs_only = !changed.is_empty();
+        let mut docs_only = !truncated && !changed.is_empty();
         let mut additions = 0u64;
         let mut deletions = 0u64;
         let mut binary_files = 0usize;
@@ -474,7 +484,7 @@ impl ToolHarness {
                 severity: "warning".to_owned(),
                 code: "review-truncated".to_owned(),
                 message: format!(
-                    "The review reached its {MAX_REVIEW_FILES}-file bound; inspect the remaining change set separately."
+                    "The review did not capture the complete change set (limit: {MAX_REVIEW_FILES} files); inspect the remaining changes separately."
                 ),
                 paths: Vec::new(),
             });
@@ -501,7 +511,8 @@ impl ToolHarness {
         } else {
             "low"
         };
-        let recommended_verification = if high_risk
+        let recommended_verification = if truncated
+            || high_risk
             || tests_changed
             || !manifest_paths.is_empty()
             || total_lines > 500
@@ -517,9 +528,11 @@ impl ToolHarness {
             .filter(|check| recommended_verification == "full" || check.level == "quick")
             .map(|check| check.id.clone())
             .collect::<Vec<_>>();
-        let clean = files_changed == 0;
+        let clean = files_changed == 0 && !truncated;
         let summary = if clean {
             "No staged, unstaged, or untracked files were detected.".to_owned()
+        } else if files_changed == 0 {
+            "No changed files were confirmed, but the review was incomplete.".to_owned()
         } else {
             format!(
                 "Reviewed {files_changed} changed file(s): {staged_files} staged, {unstaged_files} unstaged, {untracked_files} untracked; risk {risk_level}, recommend {recommended_verification} verification."

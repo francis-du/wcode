@@ -159,10 +159,18 @@ Workspace；`remote-http` 只接受不含
 检测依据时，wcode 不会凭空创建某个客户端的文件。OpenCode 会先判断 V1
 或 V2 容器，再合并 `wcode`。
 
+对于 Kimi Code CLI，`wcode setup --global` 将 `mcpServers.wcode` 合并到
+`~/.kimi-code/mcp.json`（如果 `$KIMI_CODE_HOME` 在用户主目录内，则使用其中的
+`mcp.json`）。全局安装记录 WCode 可执行文件的绝对路径，不依赖 Kimi 的 `PATH`。
+`wcode setup --project` 使用 `.kimi-code/mcp.json` 和可移植的 `wcode mcp-stdio`
+命令，并需要 Kimi 工作区信任。安装会保留已有 Kimi 服务器选项；已禁用或指向远程
+服务器的 WCode 条目会原样保留并报告为需要手工处理。空的 Kimi 配置文件可以初始化，
+有内容但格式错误的 JSON 不会被覆盖。新建 Kimi 会话后，
+先用 `/mcp` 检查连接，再请模型调用一个只读 WCode 工具，确认工具可以实际使用。
+配置目录在用户主目录之外时，请使用 Kimi 的 `/mcp-config`。
+
 ## 5. 需要手工配置的客户端
 
-- **Kimi Code CLI：**在当前 MCP UI / CLI 中加入 `wcode mcp-stdio`；Host
-  当前工作目录决定 Workspace，wcode 不假设其项目配置结构。
 - **Cline：**使用 MCP 设置页或 CLI。当前 MCP 配置属于应用状态，仓库
   安装器不会改写它。
 - **Roo Code、Windsurf：**从 Workspace MCP 设置页面添加，扩展全局状态

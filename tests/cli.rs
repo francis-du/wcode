@@ -552,6 +552,87 @@ fn setup_dry_run_is_structured_and_does_not_write() {
 }
 
 #[test]
+fn setup_global_dry_run_plans_kimi_registration_without_writing() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let config = root.join(".kimi-code/mcp.json");
+    std::fs::create_dir(config.parent().unwrap()).unwrap();
+    let existing = serde_json::json!({"mcpServers": {
+        "other": {"url": "https://example.test/mcp"},
+        "wcode": {"command": "wcode", "args": ["mcp-stdio"], "toolTimeoutMs": 90000}
+    }});
+    let original = existing.to_string();
+    std::fs::write(&config, &original).unwrap();
+    let binary = std::fs::canonicalize(env!("CARGO_BIN_EXE_wcode")).unwrap();
+    let setup = |args: &[&str]| {
+        let output = Command::new(&binary)
+            .current_dir(&root)
+            .env("HOME", &root)
+            .env("USERPROFILE", &root)
+            .env("KIMI_CODE_HOME", "")
+            .args(["setup", "--global", "--json"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+        summary["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["host_id"] == "kimi-code")
+            .unwrap()
+            .clone()
+    };
+
+    let preview = setup(&["--dry-run"]);
+    assert_eq!(preview["status"], "planned");
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), original);
+    assert_eq!(preview["target"], ".kimi-code/mcp.json");
+    assert_eq!(preview["launch_command"], binary.to_str().unwrap());
+}
+
+#[test]
+fn setup_global_detects_kimi_from_its_custom_home_without_path() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().canonicalize().unwrap();
+    let config_home = root.join("kimi-profile");
+    std::fs::create_dir(&config_home).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_wcode"))
+        .current_dir(&root)
+        .env("HOME", &root)
+        .env("USERPROFILE", &root)
+        .env("KIMI_CODE_HOME", &config_home)
+        .env("PATH", "")
+        .args(["setup", "--global", "--dry-run", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let kimi = summary["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["host_id"] == "kimi-code")
+        .unwrap();
+    assert_eq!(kimi["status"], "planned", "{kimi}");
+    assert_eq!(
+        std::path::Path::new(kimi["target"].as_str().unwrap()),
+        std::path::Path::new("kimi-profile").join("mcp.json")
+    );
+    assert!(!config_home.join("mcp.json").exists());
+}
+
+#[test]
 fn setup_project_bootstraps_design_without_workspace_argument() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(
