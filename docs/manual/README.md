@@ -10,6 +10,7 @@ permalink: /docs/
 
 # Repository tools, task tracking and checks
 
+- [v0.9.16 — Kimi setup and accurate Git worktree review](releases/v0.9.16/)
 - [v0.9.15 — Observatory navigation and bounded file tree](releases/v0.9.15/)
 
 - [v0.9.14 — Convergence observability and context efficiency](releases/v0.9.14/)
